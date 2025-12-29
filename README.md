@@ -26,14 +26,6 @@ npm run dev
 
 3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Tech Stack
-
-- Next.js 14 (App Router)
-- TypeScript
-- Tailwind CSS
-- Lucide React (icons)
-- date-fns (date utilities)
-
 ## Code Organization
 
 ### Color Configuration
@@ -52,11 +44,3 @@ export const HABIT_COLORS = [
   // ... add or modify colors here
 ];
 ```
-
-The colors will automatically update everywhere in the app!
-
-## Deploy on Vercel
-
-The easiest way to deploy your habit tracker is to use the [Vercel Platform](https://vercel.com).
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
