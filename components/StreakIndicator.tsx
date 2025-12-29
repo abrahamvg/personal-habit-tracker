@@ -106,20 +106,20 @@ export default function StreakIndicator({ totalHabits, completedToday }: StreakI
       <div className="relative w-16 h-16 flex items-center justify-center">
         <svg width="64" height="64" viewBox="0 0 64 64" className="absolute inset-0">
           <defs>
-            {/* Gradient for the fill */}
+            {/* Gradient for the fill - ocean themed */}
             <linearGradient id="flameGradient" x1="0%" y1="100%" x2="0%" y2="0%">
-              <stop offset="0%" stopColor="#f59e0b" stopOpacity="1">
+              <stop offset="0%" stopColor="#0096c7" stopOpacity="1">
                 <animate
                   attributeName="stopColor"
-                  values="#f59e0b;#fbbf24;#f59e0b"
+                  values="#0096c7;#00b4d8;#0096c7"
                   dur="2s"
                   repeatCount="indefinite"
                 />
               </stop>
-              <stop offset="100%" stopColor="#d97706" stopOpacity="1">
+              <stop offset="100%" stopColor="#48cae4" stopOpacity="1">
                 <animate
                   attributeName="stopColor"
-                  values="#d97706;#f59e0b;#d97706"
+                  values="#48cae4;#90e0ef;#48cae4"
                   dur="2s"
                   repeatCount="indefinite"
                 />
@@ -149,11 +149,10 @@ export default function StreakIndicator({ totalHabits, completedToday }: StreakI
             <path
               d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"
               fill="none"
-              stroke="#d97706"
+              className="stroke-ocean-500 dark:stroke-ocean-300"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className={isFullyComplete ? 'animate-pulse' : ''}
             />
             {/* Filled flame */}
             <path

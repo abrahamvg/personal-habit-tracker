@@ -1,21 +1,23 @@
 'use client';
 
 import { format, subDays } from 'date-fns';
-import { Habit } from '@/lib/types';
-import { getCompletions } from '@/lib/storage';
+import { Habit, HabitCompletion, Category } from '@/lib/types';
 import { useEffect, useState } from 'react';
 import { Calendar } from 'lucide-react';
-import { getHabitColorPair } from '@/lib/colors';
+import { getHabitColorPair, getCategorySortedOrder } from '@/lib/colors';
+import { formatToISODate } from '@/lib/timeUtils';
 
 interface MultiLineProgressChartProps {
   habits: Habit[];
+  completions: HabitCompletion[];
+  categories: Category[];
 }
 
 type Duration = 7 | 14 | 30 | 90;
 
 type GroupBy = 'habits' | 'categories';
 
-export default function MultiLineProgressChart({ habits }: MultiLineProgressChartProps) {
+export default function MultiLineProgressChart({ habits, completions, categories }: MultiLineProgressChartProps) {
   const [duration, setDuration] = useState<Duration>(30);
   const [groupBy, setGroupBy] = useState<GroupBy>('habits');
   const [chartData, setChartData] = useState<{
@@ -26,98 +28,104 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    const completions = getCompletions();
-    const categories = require('@/lib/storage').getCategories();
-    const activeHabits = habits.filter(h => !h.archived);
-    
-    if (activeHabits.length === 0) {
-      setChartData({ dates: [], series: [] });
-      return;
-    }
-
-    // Generate date range
-    const dates: string[] = [];
-    for (let i = duration - 1; i >= 0; i--) {
-      dates.push(format(subDays(new Date(), i), 'yyyy-MM-dd'));
-    }
-
-    let series;
-    
-    if (groupBy === 'habits') {
-      // Group by individual habits
-      series = activeHabits.map((habit, index) => {
-        const data = dates.map(date => {
-          const habitCreatedDate = format(new Date(habit.createdAt), 'yyyy-MM-dd');
-          
-          // Check if habit was completed on this specific date
-          if (date >= habitCreatedDate) {
-            const isCompleted = completions.some(
-              c => c.habitId === habit.id && c.date === date && c.completed
-            );
-            return isCompleted ? 1 : 0;
-          }
-          
-          return 0;
-        });
-
-        const colorPair = getHabitColorPair(index);
-        return {
-          habitId: habit.id,
-          habitName: habit.name,
-          data,
-          color: colorPair.line,
-          fillColor: colorPair.fill,
-        };
-      });
-    } else {
-      // Group by categories
-      const categoryGroups = new Map<string, typeof activeHabits>();
+    const loadChartData = () => {
+      const activeHabits = habits.filter(h => !h.archived);
       
-      activeHabits.forEach(habit => {
-        const categoryId = habit.category || 'uncategorized';
-        if (!categoryGroups.has(categoryId)) {
-          categoryGroups.set(categoryId, []);
-        }
-        categoryGroups.get(categoryId)!.push(habit);
-      });
+      if (activeHabits.length === 0) {
+        setChartData({ dates: [], series: [] });
+        return;
+      }
+
+      // Generate date range
+      const dates: string[] = [];
+      for (let i = duration - 1; i >= 0; i--) {
+        dates.push(formatToISODate(subDays(new Date(), i)));
+      }
+
+      let series;
       
-      series = Array.from(categoryGroups.entries()).map(([categoryId, categoryHabits], index) => {
-        const category = categories.find((c: any) => c.id === categoryId);
-        const categoryName = category?.name || 'Uncategorized';
-        
-        const data = dates.map(date => {
-          // Count completed habits in this category for this date
-          let completed = 0;
-          categoryHabits.forEach(habit => {
-            const habitCreatedDate = format(new Date(habit.createdAt), 'yyyy-MM-dd');
+      if (groupBy === 'habits') {
+        // Group by individual habits
+        series = activeHabits.map((habit, index) => {
+          const data = dates.map(date => {
+            const habitCreatedDate = formatToISODate(new Date(habit.createdAt));
+            
+            // Check if habit was completed on this specific date
             if (date >= habitCreatedDate) {
               const isCompleted = completions.some(
                 c => c.habitId === habit.id && c.date === date && c.completed
               );
-              if (isCompleted) completed++;
+              return isCompleted ? 1 : 0;
             }
+            
+            return 0;
           });
-          return completed;
+
+          const colorPair = getHabitColorPair(index);
+          return {
+            habitId: habit.id,
+            habitName: habit.name,
+            data,
+            color: colorPair.line,
+            fillColor: colorPair.fill,
+          };
+        });
+      } else {
+        // Group by categories with consistent ordering
+        const categoryGroups = new Map<string, typeof activeHabits>();
+        
+        activeHabits.forEach(habit => {
+          const categoryId = habit.category || 'uncategorized';
+          if (!categoryGroups.has(categoryId)) {
+            categoryGroups.set(categoryId, []);
+          }
+          categoryGroups.get(categoryId)!.push(habit);
         });
         
-        const colorPair = getHabitColorPair(index);
-        return {
-          habitId: categoryId,
-          habitName: categoryName,
-          data,
-          color: colorPair.line,
-          fillColor: colorPair.fill,
-        };
-      });
-    }
+        // Use consistent category ordering
+        const sortedCategoryIds = getCategorySortedOrder(activeHabits, categories);
+        
+        series = sortedCategoryIds.map((categoryId, index) => {
+          const categoryHabits = categoryGroups.get(categoryId) || [];
+          const category = categories.find((c: any) => c.id === categoryId);
+          const categoryName = category?.name || 'Uncategorized';
+          
+          const data = dates.map(date => {
+            // Count completed habits in this category for this date
+            let completed = 0;
+            categoryHabits.forEach(habit => {
+              const habitCreatedDate = formatToISODate(new Date(habit.createdAt));
+              if (date >= habitCreatedDate) {
+                const isCompleted = completions.some(
+                  c => c.habitId === habit.id && c.date === date && c.completed
+                );
+                if (isCompleted) completed++;
+              }
+            });
+            return completed;
+          });
+          
+          const colorPair = getHabitColorPair(index);
+          return {
+            habitId: categoryId,
+            habitName: categoryName,
+            data,
+            color: colorPair.line,
+            fillColor: colorPair.fill,
+          };
+        });
+      }
 
-    setChartData({ dates, series });
-  }, [habits, duration, groupBy]);
+      setChartData({ dates, series });
+    };
+    
+    loadChartData();
+  }, [habits, completions, categories, duration, groupBy]);
 
   if (chartData.series.length === 0) {
     return (
       <div className="card p-12 text-center">
-        <p className="text-sand-500">No habits to display progress for yet.</p>
+        <p className="text-sand-500 dark:text-dark-text-secondary">No habits to display progress for yet.</p>
       </div>
     );
   }
@@ -146,43 +154,39 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
   return (
     <div className="space-y-4">
       {/* Header with duration and group by selectors */}
-      <div className="card p-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className="card p-4 sm:p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-sand-700" />
-            <h2 className="text-lg font-semibold text-sand-900">Completion Trend</h2>
+            <Calendar className="w-5 h-5 text-ocean-600 dark:text-dark-text-secondary" />
+            <h2 className="text-lg font-semibold text-ocean-800 dark:text-dark-text-primary">Completion Trend</h2>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2 sm:gap-3">
             {/* Group By Selector */}
-            <div className="flex gap-2">
-              <select
-                value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-                className="px-3 py-1.5 bg-beige-100 border border-sand-200 rounded-lg text-sm font-medium text-sand-900 focus:outline-none focus:ring-2 focus:ring-sand-400"
-              >
-                <option value="habits">Habits</option>
-                <option value="categories">Categories</option>
-              </select>
-            </div>
+            <select
+              value={groupBy}
+              onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+              className="flex-1 sm:flex-none px-2 sm:px-3 py-1.5 bg-ocean-50 dark:bg-dark-card border border-ocean-200 dark:border-dark-border rounded-lg text-xs sm:text-sm font-medium text-ocean-800 dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-ocean-400 dark:focus:ring-ocean-500"
+            >
+              <option value="habits">Habits</option>
+              <option value="categories">Categories</option>
+            </select>
             {/* Duration Selector */}
-            <div className="flex gap-2">
-              <select
-                value={duration}
-                onChange={(e) => setDuration(Number(e.target.value) as Duration)}
-                className="px-3 py-1.5 bg-beige-100 border border-sand-200 rounded-lg text-sm font-medium text-sand-900 focus:outline-none focus:ring-2 focus:ring-sand-400"
-              >
-                <option value={7}>Last 7 days</option>
-                <option value={14}>Last 14 days</option>
-                <option value={30}>Last 30 days</option>
-                <option value={90}>Last 90 days</option>
-              </select>
-            </div>
+            <select
+              value={duration}
+              onChange={(e) => setDuration(Number(e.target.value) as Duration)}
+              className="flex-1 sm:flex-none px-2 sm:px-3 py-1.5 bg-ocean-50 dark:bg-dark-card border border-ocean-200 dark:border-dark-border rounded-lg text-xs sm:text-sm font-medium text-ocean-800 dark:text-dark-text-primary focus:outline-none focus:ring-2 focus:ring-ocean-400 dark:focus:ring-ocean-500"
+            >
+              <option value={7}>7 days</option>
+              <option value={14}>14 days</option>
+              <option value={30}>30 days</option>
+              <option value={90}>90 days</option>
+            </select>
           </div>
         </div>
 
-        {/* SVG Chart */}
-        <div className="relative">
-          <svg viewBox={`0 0 ${width} ${height}`} className="w-full" style={{ height: '300px' }}>
+        {/* SVG Chart - Responsive */}
+        <div className="relative overflow-x-auto">
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[500px]" style={{ height: '250px' }}>
             {/* Grid lines */}
             {gridLines.map((line, i) => (
               <g key={i}>
@@ -191,7 +195,7 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
                   y1={line.y}
                   x2={width - padding.right}
                   y2={line.y}
-                  stroke="#ddd9cc"
+                  className="stroke-sand-300 dark:stroke-dark-border"
                   strokeWidth="1"
                   strokeDasharray={i === 0 ? '0' : '4,4'}
                 />
@@ -199,7 +203,7 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
                   x={padding.left - 10}
                   y={line.y + 4}
                   textAnchor="end"
-                  className="text-[11px] fill-sand-600"
+                  className="text-[11px] fill-sand-600 dark:fill-dark-text-secondary"
                 >
                   {line.value}
                 </text>
@@ -224,7 +228,7 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
                     x={x}
                     y={height - padding.bottom + 20}
                     textAnchor="middle"
-                    className="text-[10px] fill-sand-600"
+                    className="text-[10px] fill-sand-600 dark:fill-dark-text-secondary"
                   >
                     {format(new Date(date), 'MMM d')}
                   </text>
@@ -329,7 +333,7 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
               y1={padding.top}
               x2={padding.left}
               y2={height - padding.bottom}
-              stroke="#9a917d"
+              className="stroke-sand-600 dark:stroke-dark-text-secondary"
               strokeWidth="2"
             />
             <line
@@ -337,7 +341,7 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
               y1={height - padding.bottom}
               x2={width - padding.right}
               y2={height - padding.bottom}
-              stroke="#9a917d"
+              className="stroke-sand-600 dark:stroke-dark-text-secondary"
               strokeWidth="2"
             />
           </svg>
@@ -354,9 +358,8 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
           }}
         >
           <div
-            className="px-4 py-2 rounded-full shadow-lg backdrop-blur-sm flex items-center gap-2 whitespace-nowrap"
+            className="px-4 py-2 rounded-full shadow-lg backdrop-blur-sm flex items-center gap-2 whitespace-nowrap bg-white dark:bg-dark-card border border-ocean-200 dark:border-dark-border"
             style={{
-              backgroundColor: `${hoveredHabit.color}20`,
               borderLeft: `3px solid ${hoveredHabit.color}`,
             }}
           >
@@ -364,10 +367,10 @@ export default function MultiLineProgressChart({ habits }: MultiLineProgressChar
               className="w-3 h-3 rounded-full"
               style={{ backgroundColor: hoveredHabit.color }}
             />
-            <span className="text-sm font-semibold text-sand-900">
+            <span className="text-sm font-semibold text-ocean-800 dark:text-dark-text-primary">
               {hoveredHabit.name}
             </span>
-            <span className="text-xs text-sand-600">
+            <span className="text-xs text-ocean-600 dark:text-dark-text-secondary">
               • {hoveredHabit.completions} days
             </span>
           </div>

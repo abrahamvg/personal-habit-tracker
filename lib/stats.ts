@@ -1,9 +1,11 @@
-import { format, subDays, parseISO, differenceInDays, startOfWeek, endOfWeek } from 'date-fns';
-import { Habit, HabitCompletion, Stats } from './types';
+import { subDays, parseISO, differenceInDays, endOfWeek } from 'date-fns';
+import { Stats, HabitCompletion } from './types';
 import { getCompletions } from './storage';
+import { formatToISODate } from './timeUtils';
 
-export const getHabitStats = (habitId: string): Stats => {
-  const completions = getCompletions().filter(c => c.habitId === habitId && c.completed);
+export const getHabitStats = async (habitId: string, allCompletions?: HabitCompletion[]): Promise<Stats> => {
+  const completionsData = allCompletions || await getCompletions();
+  const completions = completionsData.filter(c => c.habitId === habitId && c.completed);
   
   if (completions.length === 0) {
     return {
@@ -24,7 +26,7 @@ export const getHabitStats = (habitId: string): Stats => {
   let longestStreak = 0;
   let tempStreak = 0;
   
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = formatToISODate(new Date());
   let checkDate = today;
   
   // Current streak (going backwards from today)
@@ -34,7 +36,7 @@ export const getHabitStats = (habitId: string): Stats => {
     } else if (i > 0) {
       break;
     }
-    checkDate = format(subDays(new Date(checkDate), 1), 'yyyy-MM-dd');
+    checkDate = formatToISODate(subDays(new Date(checkDate), 1));
   }
 
   // Longest streak
@@ -57,7 +59,7 @@ export const getHabitStats = (habitId: string): Stats => {
   longestStreak = Math.max(longestStreak, tempStreak);
 
   // Completion rate (last 30 days)
-  const thirtyDaysAgo = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+  const thirtyDaysAgo = formatToISODate(subDays(new Date(), 30));
   const recentCompletions = completions.filter(c => c.date >= thirtyDaysAgo);
   const completionRate = (recentCompletions.length / 30) * 100;
 
@@ -69,16 +71,16 @@ export const getHabitStats = (habitId: string): Stats => {
   };
 };
 
-export const getWeeklyProgress = (habitId: string): { date: string; completed: boolean }[] => {
+export const getWeeklyProgress = async (habitId: string): Promise<{ date: string; completed: boolean }[]> => {
   const today = new Date();
-  const weekStart = startOfWeek(today, { weekStartsOn: 1 }); // Monday
   const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
   
-  const completions = getCompletions().filter(c => c.habitId === habitId);
+  const allCompletions = await getCompletions();
+  const completions = allCompletions.filter(c => c.habitId === habitId);
   const progress: { date: string; completed: boolean }[] = [];
   
   for (let i = 0; i < 7; i++) {
-    const date = format(subDays(weekEnd, 6 - i), 'yyyy-MM-dd');
+    const date = formatToISODate(subDays(weekEnd, 6 - i));
     const isCompleted = completions.some(c => c.date === date && c.completed);
     progress.push({ date, completed: isCompleted });
   }
@@ -86,13 +88,14 @@ export const getWeeklyProgress = (habitId: string): { date: string; completed: b
   return progress;
 };
 
-export const getMonthlyProgress = (habitId: string): { date: string; completed: boolean }[] => {
+export const getMonthlyProgress = async (habitId: string): Promise<{ date: string; completed: boolean }[]> => {
   const today = new Date();
-  const completions = getCompletions().filter(c => c.habitId === habitId);
+  const allCompletions = await getCompletions();
+  const completions = allCompletions.filter(c => c.habitId === habitId);
   const progress: { date: string; completed: boolean }[] = [];
   
   for (let i = 29; i >= 0; i--) {
-    const date = format(subDays(today, i), 'yyyy-MM-dd');
+    const date = formatToISODate(subDays(today, i));
     const isCompleted = completions.some(c => c.date === date && c.completed);
     progress.push({ date, completed: isCompleted });
   }

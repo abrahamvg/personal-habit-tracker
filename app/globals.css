@@ -4,17 +4,17 @@
 
 @layer base {
   * {
-    @apply border-sand-200;
+    @apply border-ocean-200 dark:border-dark-border;
   }
   
   body {
-    @apply font-sans;
+    @apply font-sans bg-ocean-50 dark:bg-dark-bg text-ocean-900 dark:text-dark-text-primary transition-colors duration-200;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-beige-100 border border-sand-200 rounded-xl shadow-sm;
+    @apply bg-white dark:bg-dark-card border border-ocean-200 dark:border-dark-border rounded-xl shadow-sm;
   }
   
   .btn {
@@ -22,17 +22,48 @@
   }
   
   .btn-primary {
-    @apply bg-sand-700 text-beige-50 hover:bg-sand-800 active:scale-95;
+    @apply bg-ocean-600 dark:bg-ocean-500 text-white hover:bg-ocean-700 dark:hover:bg-ocean-600 active:scale-95;
   }
   
   .btn-secondary {
-    @apply bg-beige-200 text-sand-800 hover:bg-beige-300 active:scale-95;
+    @apply bg-ocean-100 dark:bg-dark-hover text-ocean-800 dark:text-dark-text-primary hover:bg-ocean-200 dark:hover:bg-dark-border active:scale-95;
   }
   
   .input {
-    @apply w-full px-4 py-2 bg-beige-50 border border-sand-200 rounded-lg 
-           focus:outline-none focus:ring-2 focus:ring-sand-400 focus:border-transparent
-           placeholder:text-sand-400 text-sand-900;
+    @apply w-full px-4 py-2 bg-white dark:bg-dark-bg border border-ocean-200 dark:border-dark-border rounded-lg 
+           focus:outline-none focus:ring-2 focus:ring-ocean-400 dark:focus:ring-ocean-500 focus:border-transparent
+           placeholder:text-ocean-400 dark:placeholder:text-dark-text-tertiary text-ocean-900 dark:text-dark-text-primary;
+  }
+  
+  /* Select dropdown styling with proper arrow spacing */
+  select.input {
+    @apply pr-10 appearance-none cursor-pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%230096c7' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.75rem center;
+    background-repeat: no-repeat;
+    background-size: 1.25em 1.25em;
+  }
+  
+  /* Dark mode select arrow */
+  .dark select.input {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23a8c8e0' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+  }
+  
+  /* Dropdown option styling */
+  select.input option {
+    @apply py-2 px-4 bg-white dark:bg-dark-card text-ocean-900 dark:text-dark-text-primary;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  
+  /* Hover state for options (limited browser support) */
+  select.input option:hover {
+    @apply bg-ocean-50 dark:bg-dark-hover;
+  }
+  
+  /* Selected option styling */
+  select.input option:checked {
+    @apply bg-ocean-100 dark:bg-dark-border text-ocean-800 dark:text-dark-text-primary font-medium;
   }
   
   .badge {

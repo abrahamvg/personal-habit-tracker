@@ -1,115 +1,167 @@
+/**
+ * Storage Layer - Provider-agnostic API
+ * Following SOLID principles - depends on abstraction (IStorageProvider)
+ * 
+ * This layer provides a simple API that wraps the async provider.
+ * Components should use the provider from useAuth() context for authenticated operations.
+ * 
+ * NOTE: These functions now return Promises. Update calling code accordingly.
+ */
+
 import { Habit, HabitCompletion, Category } from './types';
+import { IStorageProvider } from './providers/IDataProvider';
 
-const HABITS_KEY = 'habit-tracker-habits';
-const COMPLETIONS_KEY = 'habit-tracker-completions';
-const CATEGORIES_KEY = 'habit-tracker-categories';
+// Global provider instance - can be set by AuthContext or for testing
+let globalProvider: IStorageProvider | null = null;
 
-// Habits
-export const getHabits = (): Habit[] => {
-  if (typeof window === 'undefined') return [];
-  const data = localStorage.getItem(HABITS_KEY);
-  return data ? JSON.parse(data) : [];
-};
+/**
+ * Set the global provider instance
+ * Called by AuthContext when provider is initialized
+ */
+export function setGlobalProvider(provider: IStorageProvider): void {
+  globalProvider = provider;
+}
 
-export const saveHabits = (habits: Habit[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(HABITS_KEY, JSON.stringify(habits));
-};
-
-export const addHabit = (habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Habit => {
-  const habits = getHabits();
-  const newHabit: Habit = {
-    ...habit,
-    id: crypto.randomUUID(),
-    createdAt: new Date().toISOString(),
-    archived: false,
-  };
-  saveHabits([...habits, newHabit]);
-  return newHabit;
-};
-
-export const updateHabit = (id: string, updates: Partial<Habit>): void => {
-  const habits = getHabits();
-  const updatedHabits = habits.map(h => 
-    h.id === id ? { ...h, ...updates } : h
-  );
-  saveHabits(updatedHabits);
-};
-
-export const deleteHabit = (id: string): void => {
-  const habits = getHabits();
-  saveHabits(habits.filter(h => h.id !== id));
-  
-  // Also delete all completions for this habit
-  const completions = getCompletions();
-  saveCompletions(completions.filter(c => c.habitId !== id));
-};
-
-// Completions
-export const getCompletions = (): HabitCompletion[] => {
-  if (typeof window === 'undefined') return [];
-  const data = localStorage.getItem(COMPLETIONS_KEY);
-  return data ? JSON.parse(data) : [];
-};
-
-export const saveCompletions = (completions: HabitCompletion[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(COMPLETIONS_KEY, JSON.stringify(completions));
-};
-
-export const toggleCompletion = (habitId: string, date: string): void => {
-  const completions = getCompletions();
-  const existingIndex = completions.findIndex(
-    c => c.habitId === habitId && c.date === date
-  );
-
-  if (existingIndex >= 0) {
-    completions[existingIndex].completed = !completions[existingIndex].completed;
-  } else {
-    completions.push({ habitId, date, completed: true });
+/**
+ * Get the global provider instance
+ * Throws error if not initialized - components should use useProvider() hook instead
+ */
+function getProvider(): IStorageProvider {
+  if (!globalProvider) {
+    throw new Error(
+      'Provider not initialized. Use useProvider() hook from AuthContext in components.'
+    );
   }
+  return globalProvider;
+}
 
-  saveCompletions(completions);
+/**
+ * Reset provider instance (useful for testing)
+ */
+export function resetProvider(): void {
+  globalProvider = null;
+}
+
+// ============ HABITS ============
+
+export const getHabits = async (): Promise<Habit[]> => {
+  try {
+    return await getProvider().getHabits();
+  } catch (error) {
+    console.error('Error getting habits:', error);
+    return [];
+  }
 };
 
-export const isHabitCompleted = (habitId: string, date: string): boolean => {
-  const completions = getCompletions();
+export const addHabit = async (habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Promise<Habit> => {
+  return await getProvider().addHabit(habit);
+};
+
+export const updateHabit = async (id: string, updates: Partial<Habit>): Promise<void> => {
+  return await getProvider().updateHabit(id, updates);
+};
+
+export const deleteHabit = async (id: string): Promise<void> => {
+  return await getProvider().deleteHabit(id);
+};
+
+export const togglePinHabit = async (id: string): Promise<void> => {
+  const habits = await getHabits();
+  const habit = habits.find(h => h.id === id);
+  if (habit) {
+    await updateHabit(id, { pinned: !habit.pinned });
+  }
+};
+
+export const toggleSubtask = async (habitId: string, subtaskId: string): Promise<void> => {
+  const habits = await getHabits();
+  const habit = habits.find(h => h.id === habitId);
+  
+  if (habit && habit.subtasks) {
+    const updatedSubtasks = habit.subtasks.map(subtask =>
+      subtask.id === subtaskId
+        ? { ...subtask, completed: !subtask.completed }
+        : subtask
+    );
+    await updateHabit(habitId, { subtasks: updatedSubtasks });
+  }
+};
+
+// ============ COMPLETIONS ============
+
+export const getCompletions = async (): Promise<HabitCompletion[]> => {
+  try {
+    return await getProvider().getCompletions();
+  } catch (error) {
+    console.error('Error getting completions:', error);
+    return [];
+  }
+};
+
+export const toggleCompletion = async (habitId: string, date: string): Promise<void> => {
+  return await getProvider().toggleCompletion(habitId, date);
+};
+
+export const isHabitCompleted = async (habitId: string, date: string): Promise<boolean> => {
+  return await getProvider().isHabitCompleted(habitId, date);
+};
+
+// ============ CATEGORIES ============
+
+export const getCategories = async (): Promise<Category[]> => {
+  try {
+    return await getProvider().getCategories();
+  } catch (error) {
+    console.error('Error getting categories:', error);
+    return [];
+  }
+};
+
+export const addCategory = async (name: string): Promise<Category> => {
+  return await getProvider().addCategory(name);
+};
+
+// ============ HELPERS ============
+
+/**
+ * Filter to get only active (non-archived) habits
+ */
+export const getActiveHabits = (habits: Habit[]): Habit[] => {
+  return habits.filter(h => !h.archived);
+};
+
+// ============ BACKWARD COMPATIBILITY (DEPRECATED) ============
+// These synchronous versions are kept for gradual migration
+// They use localStorage provider and will be removed in future versions
+
+import { LocalStorageProvider } from './providers/LocalStorageProvider';
+const legacyProvider = new LocalStorageProvider();
+
+/**
+ * @deprecated Use async getHabits() instead
+ */
+export const getHabitsSync = (): Habit[] => {
+  if (typeof window === 'undefined') return [];
+  const data = localStorage.getItem('habit-tracker-habits');
+  return data ? JSON.parse(data) : [];
+};
+
+/**
+ * @deprecated Use async getCompletions() instead
+ */
+export const getCompletionsSync = (): HabitCompletion[] => {
+  if (typeof window === 'undefined') return [];
+  const data = localStorage.getItem('habit-tracker-completions');
+  return data ? JSON.parse(data) : [];
+};
+
+/**
+ * @deprecated Use async isHabitCompleted() instead
+ */
+export const isHabitCompletedSync = (habitId: string, date: string): boolean => {
+  const completions = getCompletionsSync();
   const completion = completions.find(
     c => c.habitId === habitId && c.date === date
   );
   return completion?.completed || false;
-};
-
-// Categories
-export const getCategories = (): Category[] => {
-  if (typeof window === 'undefined') return [];
-  const data = localStorage.getItem(CATEGORIES_KEY);
-  if (!data) {
-    // Default categories
-    const defaults: Category[] = [
-      { id: '1', name: 'Health', color: '#9a917d' },
-      { id: '2', name: 'Productivity', color: '#b5ad9a' },
-      { id: '3', name: 'Personal', color: '#887d68' },
-      { id: '4', name: 'Learning', color: '#a39782' },
-    ];
-    saveCategories(defaults);
-    return defaults;
-  }
-  return JSON.parse(data);
-};
-
-export const saveCategories = (categories: Category[]): void => {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(CATEGORIES_KEY, JSON.stringify(categories));
-};
-
-export const addCategory = (name: string, color: string): Category => {
-  const categories = getCategories();
-  const newCategory: Category = {
-    id: crypto.randomUUID(),
-    name,
-    color,
-  };
-  saveCategories([...categories, newCategory]);
-  return newCategory;
 };

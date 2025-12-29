@@ -1,9 +1,16 @@
 export type FrequencyType = 'daily' | 'weekly';
+export type PriorityType = 'high' | 'medium' | 'low';
+export type TimeEstimate = '5min' | '15min' | '30min' | '1hr' | string; // string allows custom "HH:MM" format
 
 export type Category = {
   id: string;
   name: string;
-  color: string;
+};
+
+export type Subtask = {
+  id: string;
+  name: string;
+  completed: boolean;
 };
 
 export type Habit = {
@@ -12,8 +19,12 @@ export type Habit = {
   description?: string;
   category?: string;
   frequency: FrequencyType;
+  priority?: PriorityType;
+  timeEstimate?: TimeEstimate;
+  subtasks?: Subtask[];
   createdAt: string;
   archived: boolean;
+  pinned?: boolean;
 };
 
 export type HabitCompletion = {

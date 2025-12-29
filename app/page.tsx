@@ -1,68 +1,166 @@
 'use client';
 
+import Link from 'next/link';
 import { format } from 'date-fns';
-import { useState, useEffect } from 'react';
-import { Habit, Category } from '@/lib/types';
-import { Plus, List, Calendar as CalendarIcon, TrendingUp, Target, Trophy } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Habit, Category, HabitCompletion } from '@/lib/types';
+import { Plus, List, Target, Trophy, Zap, Clock, Filter, SortAsc, ChevronDown, ChevronUp, Menu, X, RotateCcw, LogOut, User } from 'lucide-react';
 import { 
   getHabits, 
   addHabit, 
   updateHabit, 
   deleteHabit,
   toggleCompletion,
-  isHabitCompleted,
-  getCategories
+  getCompletions,
+  getCategories,
+  toggleSubtask,
+  togglePinHabit
 } from '@/lib/storage';
-import { getHabitStats } from '@/lib/stats';
-import { getHabitColor } from '@/lib/colors';
+import { getHabitColor, getCategoryColor } from '@/lib/colors';
+import { timeEstimateToMinutes, formatToISODate } from '@/lib/timeUtils';
+import { getPriorityOrder } from '@/lib/priorityUtils';
 import HabitCard from '@/components/HabitCard';
 import AddHabitModal from '@/components/AddHabitModal';
-import HeatmapCalendar from '@/components/HeatmapCalendar';
-import MultiLineProgressChart from '@/components/MultiLineProgressChart';
-import TrendLineChart from '@/components/TrendLineChart';
 import StreakIndicator from '@/components/StreakIndicator';
+import DarkModeToggle from '@/components/DarkModeToggle';
+import PomodoroTimer from '@/components/PomodoroTimer';
+import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal';
+import AuthModal from '@/components/AuthModal';
+import { useAuth } from '@/contexts/AuthContext';
 
-type ViewMode = 'list' | 'calendar' | 'progress';
+type ViewMode = 'list' | 'focus';
 
 export default function Home() {
+  const { user, loading: authLoading, signOut, provider } = useAuth();
   const [habits, setHabits] = useState<Habit[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [completions, setCompletions] = useState<Map<string, boolean>>(new Map());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pomodoroHabit, setPomodoroHabit] = useState<Habit | null>(null);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
+  const loadingRef = useRef(false);
+  
+  // Filtering and Sorting state
+  const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [filterTime, setFilterTime] = useState<string>('all'); // all, <15, <30
+  const [sortBy, setSortBy] = useState<string>('none'); // none, priority-asc, priority-desc, time-asc, time-desc
+  const [groupBy, setGroupBy] = useState<string>('none'); // none, category, priority
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
 
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = formatToISODate(new Date());
 
   useEffect(() => {
-    setHabits(getHabits());
-    setCategories(getCategories());
-  }, [refreshKey]);
+    // Only load data if user is authenticated
+    if (!user && !authLoading) {
+      setShowAuthModal(true);
+      return;
+    }
+    
+    if (!user || authLoading) return;
+    
+    // Prevent duplicate concurrent loads
+    if (loadingRef.current) return;
+    
+    const loadData = async () => {
+      if (loadingRef.current) {
+        console.log('[Page] Load blocked - already in progress');
+        return;
+      }
+      
+      console.log('[Page] Starting data load...');
+      loadingRef.current = true;
+      setDataLoading(true);
+      
+      try {
+        const todayDate = formatToISODate(new Date());
+        
+        // Note: The 3 auth calls are expected because Promise.all() runs concurrently
+        // before the first call can cache the user. This is acceptable.
+        
+        const [habitsData, categoriesData, completionsData] = await Promise.all([
+          getHabits(),
+          getCategories(),
+          getCompletions()
+        ]);
+        
+        // Build completion map for today
+        const completionMap = new Map<string, boolean>();
+        completionsData.forEach((c: HabitCompletion) => {
+          if (c.date === todayDate) {
+            completionMap.set(c.habitId, c.completed);
+          }
+        });
+        
+        setHabits(habitsData);
+        setCategories(categoriesData);
+        setCompletions(completionMap);
+      } catch (error) {
+        console.error('Error loading data:', error);
+      } finally {
+        loadingRef.current = false;
+        setDataLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [refreshKey, user, authLoading]);
 
-  const handleAddHabit = (habitData: {
+  const handleAddHabit = async (habitData: {
     name: string;
     description?: string;
     category?: string;
     frequency: 'daily' | 'weekly';
+    priority?: 'high' | 'medium' | 'low';
+    timeEstimate?: string;
+    subtasks?: any[];
   }) => {
-    if (editingHabit) {
-      updateHabit(editingHabit.id, habitData);
-      setEditingHabit(null);
-    } else {
-      addHabit(habitData);
-    }
-    setRefreshKey(prev => prev + 1);
-  };
-
-  const handleToggleHabit = (habitId: string, date: string = today) => {
-    toggleCompletion(habitId, date);
-    setRefreshKey(prev => prev + 1);
-  };
-
-  const handleDeleteHabit = (habitId: string) => {
-    if (confirm('Are you sure you want to delete this habit?')) {
-      deleteHabit(habitId);
+    try {
+      if (editingHabit) {
+        await updateHabit(editingHabit.id, habitData);
+        setEditingHabit(null);
+      } else {
+        await addHabit(habitData);
+      }
       setRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error saving habit:', error);
+    }
+  };
+
+  const handleToggleHabit = async (habitId: string, date: string = today) => {
+    try {
+      // Optimistic update - no need to reload entire page
+      const currentStatus = completions.get(habitId) || false;
+      const newCompletions = new Map(completions);
+      newCompletions.set(habitId, !currentStatus);
+      setCompletions(newCompletions);
+      
+      await toggleCompletion(habitId, date);
+      // Success - optimistic update already applied
+    } catch (error) {
+      console.error('Error toggling habit:', error);
+      // Revert optimistic update on error
+      const revertedCompletions = new Map(completions);
+      revertedCompletions.set(habitId, completions.get(habitId) || false);
+      setCompletions(revertedCompletions);
+    }
+  };
+
+  const handleDeleteHabit = async (habitId: string) => {
+    if (confirm('Are you sure you want to delete this habit?')) {
+      try {
+        await deleteHabit(habitId);
+        setRefreshKey(prev => prev + 1);
+      } catch (error) {
+        console.error('Error deleting habit:', error);
+      }
     }
   };
 
@@ -71,55 +169,295 @@ export default function Home() {
     setIsModalOpen(true);
   };
 
-  const activeHabits = habits.filter(h => !h.archived);
-  const todayCompleted = activeHabits.filter(h => isHabitCompleted(h.id, today)).length;
+  const handleSubtaskToggle = async (habitId: string, subtaskId: string) => {
+    try {
+      // Optimistic update - update habit in local state
+      setHabits(currentHabits => 
+        currentHabits.map(habit => {
+          if (habit.id === habitId && habit.subtasks) {
+            return {
+              ...habit,
+              subtasks: habit.subtasks.map(st => 
+                st.id === subtaskId ? { ...st, completed: !st.completed } : st
+              )
+            };
+          }
+          return habit;
+        })
+      );
+      
+      await toggleSubtask(habitId, subtaskId);
+      // Success - optimistic update already applied
+    } catch (error) {
+      console.error('Error toggling subtask:', error);
+      // Reload on error to get correct state
+      setRefreshKey(prev => prev + 1);
+    }
+  };
+
+  const handlePinToggle = async (habitId: string) => {
+    try {
+      // Optimistic update - update habit in local state
+      setHabits(currentHabits => 
+        currentHabits.map(habit => 
+          habit.id === habitId ? { ...habit, pinned: !habit.pinned } : habit
+        )
+      );
+      
+      await togglePinHabit(habitId);
+      // Success - optimistic update already applied
+    } catch (error) {
+      console.error('Error pinning habit:', error);
+      // Reload on error to get correct state
+      setRefreshKey(prev => prev + 1);
+    }
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'n':
+          setEditingHabit(null);
+          setIsModalOpen(true);
+          break;
+        case '?':
+          setShowShortcuts(true);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+
+  // Get all active habits (unfiltered) for header counts
+  const allActiveHabits = habits.filter(h => !h.archived);
+  const totalCompleted = allActiveHabits.filter(h => completions.get(h.id) === true).length;
+  
+  // Filter habits for display
+  let filteredHabits = [...allActiveHabits];
+  
+  if (filterPriority !== 'all') {
+    filteredHabits = filteredHabits.filter(h => h.priority === filterPriority);
+  }
+  
+  if (filterTime !== 'all') {
+    filteredHabits = filteredHabits.filter(h => {
+      const mins = timeEstimateToMinutes(h.timeEstimate);
+      if (filterTime === '<15') return mins > 0 && mins < 15;
+      if (filterTime === '<30') return mins >= 15 && mins < 30;
+      return true;
+    });
+  }
+  
+  // Sort habits
+  let sortedHabits = [...filteredHabits];
+  
+  if (sortBy === 'priority-asc') {
+    // High to Low priority
+    sortedHabits.sort((a, b) => {
+      return getPriorityOrder(a.priority) - getPriorityOrder(b.priority);
+    });
+  } else if (sortBy === 'priority-desc') {
+    // Low to High priority
+    sortedHabits.sort((a, b) => {
+      return getPriorityOrder(b.priority) - getPriorityOrder(a.priority);
+    });
+  } else if (sortBy === 'time-asc') {
+    // Low to High time
+    sortedHabits.sort((a, b) => timeEstimateToMinutes(a.timeEstimate) - timeEstimateToMinutes(b.timeEstimate));
+  } else if (sortBy === 'time-desc') {
+    // High to Low time
+    sortedHabits.sort((a, b) => timeEstimateToMinutes(b.timeEstimate) - timeEstimateToMinutes(a.timeEstimate));
+  }
+  
+  const activeHabits = sortedHabits;
+  
+  // Group habits if needed
+  const groupedHabits: Record<string, typeof activeHabits> = {};
+  if (groupBy === 'category') {
+    activeHabits.forEach(habit => {
+      const key = habit.category || 'Uncategorized';
+      if (!groupedHabits[key]) groupedHabits[key] = [];
+      groupedHabits[key].push(habit);
+    });
+  } else if (groupBy === 'priority') {
+    activeHabits.forEach(habit => {
+      const key = habit.priority || 'medium';
+      if (!groupedHabits[key]) groupedHabits[key] = [];
+      groupedHabits[key].push(habit);
+    });
+  } else {
+    groupedHabits['all'] = activeHabits;
+  }
+  
+  const toggleGroup = (groupKey: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedGroups(newExpanded);
+  };
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-beige-50 dark:bg-dark-bg flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-ocean-200 border-t-ocean-600 rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-ocean-600 dark:text-dark-text-secondary">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show auth modal if not authenticated
+  if (!user) {
+    return (
+      <>
+        <AuthModal 
+          isOpen={showAuthModal} 
+          onClose={() => setShowAuthModal(false)}
+          onSuccess={() => {
+            setShowAuthModal(false);
+            setRefreshKey(prev => prev + 1);
+          }}
+        />
+        <div className="min-h-screen bg-gradient-to-br from-beige-50 via-ocean-50/30 to-beige-100 dark:from-dark-bg dark:via-dark-bg dark:to-dark-card flex items-center justify-center p-4">
+          <div className="max-w-md w-full text-center">
+            <div className="mb-8">
+              <h1 className="text-4xl font-bold text-ocean-800 dark:text-dark-text-primary mb-2">Habit Tracker</h1>
+              <p className="text-ocean-600 dark:text-dark-text-secondary">Track your habits, achieve your goals</p>
+            </div>
+            <div className="card p-8">
+              <div className="text-6xl mb-4">🎯</div>
+              <h2 className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary mb-4">Welcome!</h2>
+              <p className="text-ocean-600 dark:text-dark-text-secondary mb-6">
+                Sign in to start tracking your habits and sync across all your devices.
+              </p>
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="btn btn-primary w-full"
+              >
+                Sign In / Sign Up
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-beige-50">
+    <div className="min-h-screen bg-beige-50 dark:bg-dark-bg">
       {/* Header */}
-      <header className="bg-beige-100 border-b border-sand-200 sticky top-0 z-40">
+      <header className="bg-ocean-50 dark:bg-dark-card border-b border-ocean-200 dark:border-dark-border sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <h1 className="text-2xl sm:text-3xl font-bold text-sand-900">Habit Tracker</h1>
-              <p className="text-sm text-sand-600 mt-1">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
+              <Link href="/dashboard" className="inline-block hover:opacity-80 transition-opacity">
+                <h1 className="text-2xl sm:text-3xl font-bold text-ocean-800 dark:text-dark-text-primary cursor-pointer">Habit Tracker</h1>
+              </Link>
+              <p className="text-sm text-ocean-600 dark:text-dark-text-secondary mt-1">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
             </div>
             
-            {/* Today's Progress Pills */}
+            {/* Today's Progress Pills - Desktop */}
             <div className="hidden md:flex items-center gap-3 mr-4">
-              <div className="px-4 py-2 rounded-full bg-sand-100 border border-sand-200 flex items-center gap-2">
-                <Target className="w-4 h-4 text-sand-700" />
-                <span className="text-sm font-semibold text-sand-900">{todayCompleted}/{activeHabits.length}</span>
-                <span className="text-xs text-sand-600">tasks</span>
+              <div className="px-4 py-2 rounded-full bg-ocean-100 dark:bg-dark-hover border border-ocean-200 dark:border-dark-border flex items-center gap-2">
+                <Target className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
+                <span className="text-sm font-semibold text-ocean-800 dark:text-dark-text-primary">{totalCompleted}/{allActiveHabits.length}</span>
+                <span className="text-xs text-ocean-500 dark:text-dark-text-tertiary">tasks</span>
               </div>
-              <div className="px-4 py-2 rounded-full bg-sand-100 border border-sand-200 flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-sand-700" />
-                <span className="text-sm font-semibold text-sand-900">
-                  {activeHabits.length > 0 ? Math.round((todayCompleted / activeHabits.length) * 100) : 0}%
+              <div className="px-4 py-2 rounded-full bg-ocean-100 dark:bg-dark-hover border border-ocean-200 dark:border-dark-border flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
+                <span className="text-sm font-semibold text-ocean-800 dark:text-dark-text-primary">
+                  {allActiveHabits.length > 0 ? Math.round((totalCompleted / allActiveHabits.length) * 100) : 0}%
                 </span>
-                <span className="text-xs text-sand-600">rate</span>
               </div>
+              <StreakIndicator totalHabits={allActiveHabits.length} completedToday={totalCompleted} />
             </div>
             
-            {/* Streak Indicator */}
-            <div className="mr-4">
-              <StreakIndicator 
-                totalHabits={activeHabits.length}
-                completedToday={todayCompleted}
-              />
+            <div className="flex items-center gap-2 sm:gap-3">
+              {/* User Info & Sign Out */}
+              {user && (
+                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-ocean-100 dark:bg-dark-hover border border-ocean-200 dark:border-dark-border">
+                  <User className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
+                  <span className="text-xs text-ocean-600 dark:text-dark-text-secondary">{user.email}</span>
+                </div>
+              )}
+              
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 rounded-lg bg-ocean-100 dark:bg-dark-hover text-ocean-700 dark:text-dark-text-primary hover:bg-ocean-200 dark:hover:bg-dark-border transition-colors"
+                aria-label="Toggle menu"
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+              <DarkModeToggle />
+              <button
+                onClick={() => setShowShortcuts(true)}
+                className="hidden sm:block p-2 rounded-lg bg-ocean-100 dark:bg-dark-hover text-ocean-700 dark:text-dark-text-primary hover:bg-ocean-200 dark:hover:bg-dark-border transition-colors"
+                title="Keyboard Shortcuts"
+              >
+                <span className="text-sm font-mono">?</span>
+              </button>
+              <button
+                onClick={() => {
+                  setEditingHabit(null);
+                  setIsModalOpen(true);
+                }}
+                className="btn btn-primary flex items-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                <span className="hidden sm:inline">Add Habit</span>
+              </button>
+              <button
+                onClick={signOut}
+                className="btn btn-secondary flex items-center gap-2"
+                title="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Sign Out</span>
+              </button>
             </div>
-
-            <button
-              onClick={() => {
-                setEditingHabit(null);
-                setIsModalOpen(true);
-              }}
-              className="btn btn-primary flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              <span className="hidden sm:inline">Add Habit</span>
-            </button>
           </div>
+
+          {/* Mobile Stats Dropdown */}
+          {mobileMenuOpen && (
+            <div className="md:hidden mt-4 p-4 bg-ocean-100/50 dark:bg-dark-hover/50 rounded-xl border border-ocean-200 dark:border-dark-border">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1 flex items-center gap-2 p-3 bg-white dark:bg-dark-card rounded-lg">
+                  <Target className="w-5 h-5 text-ocean-500" />
+                  <div>
+                    <p className="text-lg font-bold text-ocean-800 dark:text-dark-text-primary">{totalCompleted}/{allActiveHabits.length}</p>
+                    <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">Tasks Done</p>
+                  </div>
+                </div>
+                <div className="flex-1 flex items-center gap-2 p-3 bg-white dark:bg-dark-card rounded-lg">
+                  <Trophy className="w-5 h-5 text-ocean-500" />
+                  <div>
+                    <p className="text-lg font-bold text-ocean-800 dark:text-dark-text-primary">
+                      {allActiveHabits.length > 0 ? Math.round((totalCompleted / allActiveHabits.length) * 100) : 0}%
+                    </p>
+                    <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">Complete</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-center">
+                  <StreakIndicator totalHabits={allActiveHabits.length} completedToday={totalCompleted} />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* View Mode Tabs */}
           <div className="flex gap-2 mt-4">
@@ -130,25 +468,16 @@ export default function Home() {
               }`}
             >
               <List className="w-4 h-4" />
-              <span>List</span>
+              <span className="hidden sm:inline">List</span>
             </button>
             <button
-              onClick={() => setViewMode('calendar')}
+              onClick={() => setViewMode('focus')}
               className={`btn flex items-center gap-2 ${
-                viewMode === 'calendar' ? 'btn-primary' : 'btn-secondary'
+                viewMode === 'focus' ? 'btn-primary' : 'btn-secondary'
               }`}
             >
-              <CalendarIcon className="w-4 h-4" />
-              <span>Calendar</span>
-            </button>
-            <button
-              onClick={() => setViewMode('progress')}
-              className={`btn flex items-center gap-2 ${
-                viewMode === 'progress' ? 'btn-primary' : 'btn-secondary'
-              }`}
-            >
-              <TrendingUp className="w-4 h-4" />
-              <span>Progress</span>
+              <Zap className="w-4 h-4" />
+              <span className="hidden sm:inline">Focus</span>
             </button>
           </div>
         </div>
@@ -158,25 +487,132 @@ export default function Home() {
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
         {viewMode === 'list' && (
           <div className="space-y-6">
+            {/* Filter and Sort Control*/}
+            <div className="card p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setFiltersExpanded(!filtersExpanded)}
+                  className="flex items-center gap-2 text-ocean-700 dark:text-dark-text-primary hover:text-ocean-800 dark:hover:text-dark-text-secondary transition-colors"
+                >
+                  <Filter className="w-4 h-4" />
+                  <span className="font-medium">Filters & Sort</span>
+                  {filtersExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                </button>
+                
+                {/* Reset Button - Always visible */}
+                <button
+                  onClick={() => {
+                    setFilterPriority('all');
+                    setFilterTime('all');
+                    setSortBy('none');
+                    setGroupBy('none');
+                    setExpandedGroups(new Set());
+                  }}
+                  className="btn btn-secondary flex items-center gap-2 text-sm"
+                  title="Reset all filters"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span className="hidden sm:inline">Reset</span>
+                </button>
+              </div>
+              
+              {filtersExpanded && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                  {/* Filter by Priority */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-ocean-600 dark:text-dark-text-secondary uppercase tracking-wider flex items-center gap-2">
+                      <Filter className="w-3.5 h-3.5" />
+                      Priority
+                    </label>
+                    <select
+                      value={filterPriority}
+                      onChange={(e) => setFilterPriority(e.target.value)}
+                      className="input w-full py-2 px-3 text-sm"
+                    >
+                      <option value="all">All Priorities</option>
+                      <option value="high">🔴 High</option>
+                      <option value="medium">🟡 Medium</option>
+                      <option value="low">🟢 Low</option>
+                    </select>
+                  </div>
+
+                  {/* Filter by Time */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-ocean-600 dark:text-dark-text-secondary uppercase tracking-wider flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      Duration
+                    </label>
+                    <select
+                      value={filterTime}
+                      onChange={(e) => setFilterTime(e.target.value)}
+                      className="input w-full py-2 px-3 text-sm"
+                    >
+                      <option value="all">All Durations</option>
+                      <option value="<15">⚡ Quick (&lt; 15 min)</option>
+                      <option value="<30">⏱️  Medium (15-30 min)</option>
+                    </select>
+                  </div>
+
+                  {/* Sort By */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-ocean-600 dark:text-dark-text-secondary uppercase tracking-wider flex items-center gap-2">
+                      <SortAsc className="w-3.5 h-3.5" />
+                      Sort
+                    </label>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="input w-full py-2 px-3 text-sm"
+                    >
+                      <option value="none">Default Order</option>
+                      <option value="priority-asc">Priority: High → Low</option>
+                      <option value="priority-desc">Priority: Low → High</option>
+                      <option value="time-asc">Time: Low → High</option>
+                      <option value="time-desc">Time: High → Low</option>
+                    </select>
+                  </div>
+
+                  {/* Group By */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-ocean-600 dark:text-dark-text-secondary uppercase tracking-wider flex items-center gap-2">
+                      <List className="w-3.5 h-3.5" />
+                      Group
+                    </label>
+                    <select
+                      value={groupBy}
+                      onChange={(e) => setGroupBy(e.target.value)}
+                      className="input w-full py-2 px-3 text-sm"
+                    >
+                      <option value="none">No Grouping</option>
+                      <option value="category">📁 By Category</option>
+                      <option value="priority">🎯 By Priority</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Habits List */}
             <div>
-              <h2 className="text-lg font-semibold text-sand-900 mb-4">Your Habits</h2>
-              <div className="space-y-3">
-                {activeHabits.length === 0 ? (
-                  <div className="card p-12 text-center">
-                    <p className="text-sand-500 mb-4">No habits yet. Start building better habits today!</p>
-                    <button
-                      onClick={() => setIsModalOpen(true)}
-                      className="btn btn-primary inline-flex items-center gap-2"
-                    >
-                      <Plus className="w-5 h-5" />
-                      Add Your First Habit
-                    </button>
-                  </div>
-                ) : (
-                  activeHabits.map((habit, index) => {
+              {activeHabits.length === 0 ? (
+                <div className="card p-12 text-center">
+                  <p className="text-sand-500 dark:text-dark-text-secondary mb-4">No habits match your filters. Try adjusting them!</p>
+                  <button
+                    onClick={() => {
+                      setFilterPriority('all');
+                      setFilterTime('all');
+                      setIsModalOpen(true);
+                    }}
+                    className="btn btn-primary inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add New Habit
+                  </button>
+                </div>
+              ) : groupBy === 'none' ? (
+                <div className="space-y-3">
+                  {activeHabits.map((habit, index) => {
                     const category = categories.find(c => c.id === habit.category);
-                    const habitColor = getHabitColor(index);
                     return (
                       <HabitCard
                         key={habit.id}
@@ -184,29 +620,185 @@ export default function Home() {
                         onToggle={() => handleToggleHabit(habit.id)}
                         onDelete={() => handleDeleteHabit(habit.id)}
                         onEdit={() => handleEditHabit(habit)}
-                        isCompleted={isHabitCompleted(habit.id, today)}
-                        categoryColor={category?.color}
-                        habitColor={habitColor}
+                        onStartTimer={() => setPomodoroHabit(habit)}
+                        onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
+                        onPin={() => handlePinToggle(habit.id)}
+                        isCompleted={completions.get(habit.id) === true}
+                        categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
+                        categoryName={category?.name}
                       />
                     );
-                  })
-                )}
-              </div>
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Object.entries(groupedHabits).map(([groupKey, habits], groupIndex) => {
+                    const isExpanded = expandedGroups.has(groupKey);
+                    const groupCategory = categories.find(c => c.id === groupKey);
+                    const groupName = groupBy === 'category' 
+                      ? (groupCategory?.name || 'Uncategorized')
+                      : groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
+                    
+                    // Use consistent category color assignment
+                    let groupColor = undefined;
+                    if (groupBy === 'category') {
+                      groupColor = getCategoryColor(groupKey, activeHabits, categories);
+                    }
+                    
+                    return (
+                      <div key={groupKey} className="card overflow-hidden">
+                        <button
+                          onClick={() => toggleGroup(groupKey)}
+                          className="w-full p-5 flex items-center justify-between hover:bg-ocean-50 dark:hover:bg-dark-hover transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            {isExpanded ? <ChevronDown className="w-5 h-5 text-ocean-500" /> : <ChevronUp className="w-5 h-5 text-ocean-500" />}
+                            <span className="font-semibold text-ocean-800 dark:text-dark-text-primary">
+                              {groupName}
+                            </span>
+                            {groupColor && (
+                              <span 
+                                className="px-2 py-1 rounded-full text-xs font-medium text-white"
+                                style={{ backgroundColor: groupColor }}
+                              >
+                                {habits.length}
+                              </span>
+                            )}
+                            {!groupColor && (
+                              <span className="text-sm text-ocean-500 dark:text-dark-text-tertiary">
+                                ({habits.length})
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                        {isExpanded && (
+                          <div className="px-5 pb-5 space-y-3 border-t border-ocean-200 dark:border-dark-border">
+                            {habits.map((habit, index) => {
+                              const category = categories.find(c => c.id === habit.category);
+                              const habitColor = getHabitColor(index);
+                              return (
+                                <HabitCard
+                                  key={habit.id}
+                                  habit={habit}
+                                  onToggle={() => handleToggleHabit(habit.id)}
+                                  onDelete={() => handleDeleteHabit(habit.id)}
+                                  onEdit={() => handleEditHabit(habit)}
+                                  onStartTimer={() => setPomodoroHabit(habit)}
+                                  onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
+                                  onPin={() => handlePinToggle(habit.id)}
+                                  isCompleted={completions.get(habit.id) === true}
+                                  categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
+                                  categoryName={category?.name}
+                                />
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {viewMode === 'calendar' && (
-          <HeatmapCalendar
-            habits={activeHabits}
-            onDayClick={(date) => {
-              // Optional: Handle day click if needed
-            }}
-          />
-        )}
-
-        {viewMode === 'progress' && (
-          <MultiLineProgressChart habits={activeHabits} />
+        {viewMode === 'focus' && (
+          <div className="space-y-6">
+            {/* Focus Mode - Ocean themed */}
+            <div className="card p-6 sm:p-8 bg-gradient-to-br from-ocean-50 via-ocean-100 to-ocean-200 dark:from-dark-card dark:via-dark-card dark:to-dark-hover border-2 border-ocean-300 dark:border-dark-border rounded-2xl shadow-lg">
+              <div className="flex items-center gap-4 mb-6">
+                <div className="p-4 bg-gradient-to-br from-ocean-400 to-ocean-600 rounded-2xl shadow-md">
+                  <Zap className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">Focus Mode</h2>
+                  <p className="text-sm text-ocean-600 dark:text-dark-text-secondary">One task at a time. You've got this!</p>
+                </div>
+              </div>
+              
+              {(() => {
+                const highPriorityIncomplete = activeHabits
+                  .filter(h => h.priority === 'high' && completions.get(h.id) !== true);
+                
+                const totalTimeMinutes = highPriorityIncomplete.reduce((sum, h) => {
+                  return sum + timeEstimateToMinutes(h.timeEstimate || '15min');
+                }, 0);
+                
+                return (
+                  <div>
+                    {/* Stats bar */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
+                      <div className="flex-1 flex items-center gap-3 p-4 bg-white/80 dark:bg-dark-hover/80 backdrop-blur rounded-xl border border-ocean-200 dark:border-dark-border">
+                        <div className="p-2 bg-ocean-100 dark:bg-ocean-700/30 rounded-lg">
+                          <Target className="w-5 h-5 text-ocean-600 dark:text-ocean-300" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">{highPriorityIncomplete.length}</p>
+                          <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">High-priority tasks</p>
+                        </div>
+                      </div>
+                      <div className="flex-1 flex items-center gap-3 p-4 bg-white/80 dark:bg-dark-hover/80 backdrop-blur rounded-xl border border-ocean-200 dark:border-dark-border">
+                        <div className="p-2 bg-ocean-100 dark:bg-ocean-700/30 rounded-lg">
+                          <Clock className="w-5 h-5 text-ocean-600 dark:text-ocean-300" />
+                        </div>
+                        <div>
+                          <p className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">~{totalTimeMinutes}</p>
+                          <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">Minutes total</p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {highPriorityIncomplete.length === 0 ? (
+                      <div className="text-center py-12 bg-white/60 dark:bg-dark-hover/60 backdrop-blur rounded-2xl">
+                        <div className="text-7xl mb-4">🌊</div>
+                        <p className="text-xl font-bold text-ocean-800 dark:text-dark-text-primary">All high-priority tasks done!</p>
+                        <p className="text-sm text-ocean-600 dark:text-dark-text-secondary mt-2">Smooth sailing! Take a well-deserved break.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {highPriorityIncomplete.map((habit, index) => {
+                          const category = categories.find(c => c.id === habit.category);
+                          const habitColor = getHabitColor(index);
+                          return (
+                            <HabitCard
+                              key={habit.id}
+                              habit={habit}
+                              onToggle={() => handleToggleHabit(habit.id)}
+                              onDelete={() => handleDeleteHabit(habit.id)}
+                              onEdit={() => handleEditHabit(habit)}
+                              onStartTimer={() => setPomodoroHabit(habit)}
+                              onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
+                              onPin={() => handlePinToggle(habit.id)}
+                              isCompleted={false}
+                              categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
+                              categoryName={category?.name}
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+            
+            {/* Quick tip - Ocean themed */}
+            <div className="card p-5 bg-gradient-to-r from-ocean-50 to-ocean-100 dark:from-dark-hover dark:to-dark-card border border-ocean-200 dark:border-dark-border rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-ocean-200 dark:bg-dark-border rounded-lg flex-shrink-0">
+                  <span className="text-lg">🌊</span>
+                </div>
+                <div>
+                  <p className="font-semibold text-ocean-800 dark:text-dark-text-primary mb-1">Stay in the Flow</p>
+                  <p className="text-sm text-ocean-600 dark:text-dark-text-secondary leading-relaxed">
+                    One task at a time. Break big tasks into smaller steps. 
+                    Progress over perfection!
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
       </main>
 
@@ -224,7 +816,28 @@ export default function Home() {
           description: editingHabit.description,
           category: editingHabit.category,
           frequency: editingHabit.frequency,
+          priority: editingHabit.priority,
+          timeEstimate: editingHabit.timeEstimate,
+          subtasks: editingHabit.subtasks,
         } : undefined}
+      />
+
+      {/* Pomodoro Timer */}
+      {pomodoroHabit && (
+        <PomodoroTimer
+          habitName={pomodoroHabit.name}
+          timeEstimate={pomodoroHabit.timeEstimate}
+          onComplete={() => {
+            handleToggleHabit(pomodoroHabit.id);
+          }}
+          onClose={() => setPomodoroHabit(null)}
+        />
+      )}
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
       />
     </div>
   );

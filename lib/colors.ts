@@ -29,3 +29,25 @@ export const getHabitColorPair = (index: number) => {
     fill: `${color}${AREA_FILL_OPACITY}`,
   };
 };
+
+// Create consistent category ordering for color assignment
+export const getCategorySortedOrder = (habits: any[], categories: any[]) => {
+  // Get unique category IDs from habits, including uncategorized
+  const categoryIds = [...new Set(habits.map(h => h.category || 'uncategorized'))];
+  
+  // Sort by category name for consistent ordering
+  return categoryIds.sort((a, b) => {
+    const categoryA = categories.find(c => c.id === a);
+    const categoryB = categories.find(c => c.id === b);
+    const nameA = categoryA?.name || 'Uncategorized';
+    const nameB = categoryB?.name || 'Uncategorized';
+    return nameA.localeCompare(nameB);
+  });
+};
+
+// Get category color by category ID using consistent ordering
+export const getCategoryColor = (categoryId: string, habits: any[], categories: any[]) => {
+  const sortedCategories = getCategorySortedOrder(habits, categories);
+  const index = sortedCategories.indexOf(categoryId);
+  return getHabitColor(index);
+};
