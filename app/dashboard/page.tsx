@@ -85,7 +85,7 @@ export default function Dashboard() {
   const totalCompleted = isMounted ? allActiveHabits.filter(h => completions.get(h.id) === true).length : 0;
   
   useEffect(() => {
-    if (!isMounted || allCompletions.length === 0) return;
+    if (!isMounted || habits.length === 0) return;
     const loadDashboardHabits = async () => {
       const selected = await getDashboardHabits(habits, allCompletions);
       setDashboardHabits(selected);
@@ -389,6 +389,8 @@ export default function Dashboard() {
                   habit={habit}
                   onToggle={() => handleToggleHabit(habit.id)}
                   isPinned={habit.pinned || false}
+                  isCompleted={completions.get(habit.id) === true}
+                  allCompletions={allCompletions}
                 />
               ))}
             </div>
