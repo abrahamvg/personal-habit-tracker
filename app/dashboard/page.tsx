@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { format, subDays, startOfWeek, endOfWeek } from 'date-fns';
-import { Habit, Category, HabitCompletion } from '@/lib/types';
+import { Habit, HabitCompletion } from '@/lib/types';
 import { 
   Home, 
   TrendingUp, 
@@ -16,95 +16,90 @@ import {
   ArrowLeft,
   Sparkles
 } from 'lucide-react';
-import { 
-  getHabits, 
-  toggleCompletion,
-  getCategories,
-  getCompletions,
-  togglePinHabit
-} from '@/lib/storage';
+import { useHabitStore } from '@/lib/store';
 import { getDashboardHabits } from '@/lib/dashboardUtils';
 import { formatToISODate, timeEstimateToMinutes } from '@/lib/timeUtils';
 import { getHabitStats } from '@/lib/stats';
 import DarkModeToggle from '@/components/DarkModeToggle';
 import ProgressRing from '@/components/ProgressRing';
+import DebugPanel from '@/components/DebugPanel';
+import { isDebugMode } from '@/lib/debugUtils';
 import DashboardTaskCard from '@/components/DashboardTaskCard';
 import HeatmapCalendar from '@/components/HeatmapCalendar';
 import MultiLineProgressChart from '@/components/MultiLineProgressChart';
+import FocusModeView from '@/components/FocusModeView';
+import DayCompletionModal from '@/components/DayCompletionModal';
 import confetti from 'canvas-confetti';
 
 export default function Dashboard() {
   const router = useRouter();
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [completions, setCompletions] = useState<Map<string, boolean>>(new Map());
-  const [allCompletions, setAllCompletions] = useState<HabitCompletion[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  
+  // Zustand store - single source of truth
+  const {
+    habits: allHabits,
+    completions: allCompletions,
+    categories,
+    loading: dataLoading,
+    initialized,
+    initialize,
+    refresh,
+    toggleCompletion,
+    toggleSubtask,
+    togglePin,
+    toggleArchive,
+    deleteHabit,
+    updateHabit,
+    getCompletionMap,
+    getActiveHabits
+  } = useHabitStore();
+  
   const [showCelebration, setShowCelebration] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-  const loadingRef = useRef(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  const [showFocusMode, setShowFocusMode] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const today = useMemo(() => formatToISODate(new Date()), []);
 
+  // Check debug mode on client-side mount
   useEffect(() => {
-    // Prevent duplicate loads in React Strict Mode (dev only)
-    if (loadingRef.current) return;
-    
-    setIsMounted(true);
-    const loadData = async () => {
-      loadingRef.current = true;
-      
-      const [habitsData, categoriesData, completionsData] = await Promise.all([
-        getHabits(),
-        getCategories(),
-        getCompletions()
-      ]);
-      
-      // Build completion map for today
-      const completionMap = new Map<string, boolean>();
-      completionsData.forEach((c: HabitCompletion) => {
-        if (c.date === today) {
-          completionMap.set(c.habitId, c.completed);
-        }
-      });
-      
-      setHabits(habitsData);
-      setCategories(categoriesData);
-      setCompletions(completionMap);
-      setAllCompletions(completionsData);
-      loadingRef.current = false;
-    };
-    loadData();
-  }, [refreshKey, today]);
+    setDebugMode(isDebugMode());
+  }, []);
 
-  const allActiveHabits = useMemo(() => 
-    isMounted ? habits.filter(h => !h.archived) : []
-  , [isMounted, habits]);
+  // Initialize store on mount
+  useEffect(() => {
+    if (!initialized && !dataLoading) {
+      initialize();
+    }
+  }, [initialized, dataLoading, initialize]);
+
+  const allActiveHabits = useMemo(() => getActiveHabits(), [allHabits]);
   
   const [dashboardHabits, setDashboardHabits] = useState<Habit[]>([]);
-  const totalCompleted = isMounted ? allActiveHabits.filter(h => completions.get(h.id) === true).length : 0;
+  const completions = useMemo(() => getCompletionMap(today), [allCompletions, today]);
+  const totalCompleted = allActiveHabits.filter(h => completions.get(h.id) === true).length;
   
   useEffect(() => {
-    if (!isMounted || habits.length === 0) return;
+    if (allHabits.length === 0) return;
     const loadDashboardHabits = async () => {
-      const selected = await getDashboardHabits(habits, allCompletions);
+      const selected = await getDashboardHabits(allHabits, allCompletions);
       setDashboardHabits(selected);
     };
     loadDashboardHabits();
-  }, [isMounted, habits, allCompletions]);
+  }, [allHabits, allCompletions]);
   const totalTasks = allActiveHabits.length;
   const completionPercentage = totalTasks > 0 ? (totalCompleted / totalTasks) * 100 : 0;
 
   // Calculate total estimated time for dashboard tasks
-  const totalEstimatedMinutes = isMounted ? dashboardHabits.reduce((sum, habit) => {
+  const totalEstimatedMinutes = dashboardHabits.reduce((sum, habit) => {
     return sum + timeEstimateToMinutes(habit.timeEstimate || '15min');
-  }, 0) : 0;
+  }, 0);
 
-  // Calculate current longest streak across all habits - use allCompletions to avoid fetching
+  // Calculate current longest streak across all habits
   const [longestCurrentStreak, setLongestCurrentStreak] = useState(0);
   
   useEffect(() => {
-    if (!isMounted || allCompletions.length === 0) return;
+    if (allCompletions.length === 0) return;
     const loadLongestStreak = async () => {
       let maxStreak = 0;
       for (const habit of allActiveHabits) {
@@ -114,19 +109,19 @@ export default function Dashboard() {
       setLongestCurrentStreak(maxStreak);
     };
     loadLongestStreak();
-  }, [isMounted, allActiveHabits, allCompletions]);
+  }, [allActiveHabits, allCompletions]);
 
-  // Weekly stats - use allCompletions instead of fetching
+  // Weekly stats
   const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(new Date(), { weekStartsOn: 1 });
-  const weeklyCompletions = isMounted ? allCompletions.filter((c: HabitCompletion) => {
+  const weeklyCompletions = allCompletions.filter((c: HabitCompletion) => {
     const date = new Date(c.date);
     return c.completed && date >= weekStart && date <= weekEnd;
-  }).length : 0;
+  }).length;
 
-  // Best day this week - use allCompletions instead of fetching
+  // Best day this week
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const bestDay = isMounted ? (() => {
+  const bestDay = (() => {
     const dailyCompletions = Array.from({ length: 7 }, (_, i) => {
       const date = formatToISODate(subDays(weekEnd, 6 - i));
       const count = allActiveHabits.filter(h => {
@@ -140,7 +135,7 @@ export default function Dashboard() {
           current.count > best.count ? current : best
         , { day: 'None', count: 0, total: 0 })
       : { day: 'None', count: 0, total: 0 };
-  })() : { day: 'None', count: 0, total: 0 };
+  })();
 
   // Time saved calculation (assuming each habit saves time in the long run)
   const timeSavedMinutes = weeklyCompletions * 15; // Rough estimate: 15 min per habit
@@ -151,31 +146,59 @@ export default function Dashboard() {
     const wasCompleted = completions.get(habitId) || false;
     
     try {
-      // Optimistic update - no need to reload entire page
-      const newCompletions = new Map(completions);
-      newCompletions.set(habitId, !wasCompleted);
-      setCompletions(newCompletions);
-      
       await toggleCompletion(habitId, today);
       
       // Check if all dashboard tasks are now complete
       if (!wasCompleted) {
+        const updatedCompletions = getCompletionMap(today);
         const newCompleted = dashboardHabits.filter(h => 
-          h.id === habitId || newCompletions.get(h.id) === true
+          h.id === habitId || updatedCompletions.get(h.id) === true
         ).length;
         
         if (newCompleted === dashboardHabits.length && dashboardHabits.length > 0) {
           triggerCelebration();
         }
       }
-      
-      // Success - optimistic update already applied, no reload needed
     } catch (error) {
       console.error('Error toggling habit:', error);
-      // Revert optimistic update on error
-      const revertedCompletions = new Map(completions);
-      revertedCompletions.set(habitId, wasCompleted);
-      setCompletions(revertedCompletions);
+    }
+  };
+
+  const handleDeleteHabit = async (habitId: string) => {
+    if (confirm('Are you sure you want to delete this habit?')) {
+      try {
+        await deleteHabit(habitId);
+      } catch (error) {
+        console.error('Error deleting habit:', error);
+      }
+    }
+  };
+
+  const handleEditHabit = (habit: Habit) => {
+    setEditingHabit(habit);
+  };
+
+  const handleSubtaskToggle = async (habitId: string, subtaskId: string) => {
+    try {
+      await toggleSubtask(habitId, subtaskId);
+    } catch (error) {
+      console.error('Error toggling subtask:', error);
+    }
+  };
+
+  const handlePinToggle = async (habitId: string) => {
+    try {
+      await togglePin(habitId);
+    } catch (error) {
+      console.error('Error pinning habit:', error);
+    }
+  };
+
+  const handleArchiveToggle = async (habitId: string) => {
+    try {
+      await toggleArchive(habitId);
+    } catch (error) {
+      console.error('Error archiving habit:', error);
     }
   };
 
@@ -245,6 +268,15 @@ export default function Dashboard() {
             </div>
             
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowFocusMode(!showFocusMode)}
+                className={`btn flex items-center gap-2 ${
+                  showFocusMode ? 'btn-primary' : 'btn-secondary'
+                }`}
+              >
+                <Zap className="w-4 h-4" />
+                <span className="hidden sm:inline">Focus</span>
+              </button>
               <DarkModeToggle />
               <button
                 onClick={() => router.push('/')}
@@ -260,6 +292,20 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        {showFocusMode ? (
+          <FocusModeView
+            habits={dashboardHabits}
+            categories={categories}
+            completions={completions}
+            onToggle={handleToggleHabit}
+            onDelete={handleDeleteHabit}
+            onEdit={handleEditHabit}
+            onSubtaskToggle={handleSubtaskToggle}
+            onPin={handlePinToggle}
+            onArchive={handleArchiveToggle}
+          />
+        ) : (
+          <>
         {/* Top Section: Progress Ring + Quick Stats */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
           {/* Progress Ring */}
@@ -409,7 +455,7 @@ export default function Dashboard() {
               habits={allActiveHabits}
               completions={allCompletions}
               onDayClick={(date) => {
-                // Optional: Handle day click
+                setSelectedDate(date);
               }}
             />
           </div>
@@ -427,7 +473,28 @@ export default function Dashboard() {
             />
           </div>
         </div>
+        </>
+        )}
       </main>
+
+      {/* Day Completion Modal */}
+      {selectedDate && (
+        <DayCompletionModal
+          isOpen={true}
+          onClose={() => setSelectedDate(null)}
+          date={selectedDate}
+          habits={allActiveHabits}
+          completions={allCompletions}
+        />
+      )}
+
+      {/* Debug Panel (only visible when ?debug=true in URL) */}
+      {debugMode && (
+        <DebugPanel 
+          habits={allActiveHabits} 
+          onRefresh={() => refresh()}
+        />
+      )}
     </div>
   );
 }

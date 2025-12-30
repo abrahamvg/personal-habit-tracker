@@ -50,6 +50,11 @@ export interface IDataProvider {
   addHabit(habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Promise<Habit>;
   
   /**
+   * Create a new habit with a custom creation date (for debug/testing)
+   */
+  addHabitWithDate(habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>, createdAt: string): Promise<Habit>;
+  
+  /**
    * Update an existing habit
    */
   updateHabit(id: string, updates: Partial<Habit>): Promise<void>;

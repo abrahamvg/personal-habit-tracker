@@ -1,7 +1,7 @@
 'use client';
 
 import { Habit } from '@/lib/types';
-import { CheckCircle2, Circle, Trash2, Edit, Clock, Timer, ChevronDown, ChevronUp, Pin } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Edit, Clock, Timer, ChevronDown, ChevronUp, Pin, Archive, ArchiveRestore } from 'lucide-react';
 import { useState } from 'react';
 import { formatTimeEstimate } from '@/lib/timeUtils';
 import PriorityBadge from './ui/PriorityBadge';
@@ -14,6 +14,7 @@ interface HabitCardProps {
   onStartTimer?: () => void;
   onSubtaskToggle?: (subtaskId: string) => void;
   onPin?: () => void;
+  onArchive?: () => void;
   isCompleted: boolean;
   categoryColor?: string;
   categoryName?: string;
@@ -27,6 +28,7 @@ export default function HabitCard({
   onStartTimer,
   onSubtaskToggle,
   onPin,
+  onArchive,
   isCompleted, 
   categoryColor,
   categoryName,
@@ -162,6 +164,19 @@ export default function HabitCard({
               title="Start Pomodoro timer"
             >
               <Timer className="w-4 h-4 text-priority-medium-600 dark:text-priority-medium-400 group-hover:text-priority-medium-700 dark:group-hover:text-priority-medium-300" />
+            </button>
+          )}
+          {onArchive && (
+            <button
+              onClick={onArchive}
+              className="p-2 hover:bg-beige-200 dark:hover:bg-dark-hover rounded-lg transition-colors"
+              title={habit.archived ? 'Unarchive habit' : 'Archive habit'}
+            >
+              {habit.archived ? (
+                <ArchiveRestore className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+              ) : (
+                <Archive className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+              )}
             </button>
           )}
           <button

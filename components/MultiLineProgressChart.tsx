@@ -48,7 +48,10 @@ export default function MultiLineProgressChart({ habits, completions, categories
         // Group by individual habits
         series = activeHabits.map((habit, index) => {
           const data = dates.map(date => {
-            const habitCreatedDate = formatToISODate(new Date(habit.createdAt));
+            // Treat habits without createdAt as created long ago (always existed)
+            const habitCreatedDate = habit.createdAt 
+              ? formatToISODate(new Date(habit.createdAt))
+              : '1970-01-01';
             
             // Check if habit was completed on this specific date
             if (date >= habitCreatedDate) {
@@ -94,7 +97,11 @@ export default function MultiLineProgressChart({ habits, completions, categories
             // Count completed habits in this category for this date
             let completed = 0;
             categoryHabits.forEach(habit => {
-              const habitCreatedDate = formatToISODate(new Date(habit.createdAt));
+              // Treat habits without createdAt as created long ago
+              const habitCreatedDate = habit.createdAt
+                ? formatToISODate(new Date(habit.createdAt))
+                : '1970-01-01';
+              
               if (date >= habitCreatedDate) {
                 const isCompleted = completions.some(
                   c => c.habitId === habit.id && c.date === date && c.completed

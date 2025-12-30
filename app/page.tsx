@@ -2,23 +2,14 @@
 
 import Link from 'next/link';
 import { format } from 'date-fns';
-import { useState, useEffect, useRef } from 'react';
-import { Habit, Category, HabitCompletion } from '@/lib/types';
-import { Plus, List, Target, Trophy, Zap, Clock, Filter, SortAsc, ChevronDown, ChevronUp, Menu, X, RotateCcw, LogOut, User } from 'lucide-react';
-import { 
-  getHabits, 
-  addHabit, 
-  updateHabit, 
-  deleteHabit,
-  toggleCompletion,
-  getCompletions,
-  getCategories,
-  toggleSubtask,
-  togglePinHabit
-} from '@/lib/storage';
+import { useState, useEffect } from 'react';
+import { Habit, Category } from '@/lib/types';
+import { Plus, List, Target, Trophy, Zap, Clock, Filter, SortAsc, ChevronDown, ChevronUp, Menu, X, RotateCcw, LogOut, User, Archive } from 'lucide-react';
+import { useHabitStore } from '@/lib/store';
 import { getHabitColor, getCategoryColor } from '@/lib/colors';
 import { timeEstimateToMinutes, formatToISODate } from '@/lib/timeUtils';
 import { getPriorityOrder } from '@/lib/priorityUtils';
+import { getDashboardHabits } from '@/lib/dashboardUtils';
 import HabitCard from '@/components/HabitCard';
 import AddHabitModal from '@/components/AddHabitModal';
 import StreakIndicator from '@/components/StreakIndicator';
@@ -26,25 +17,49 @@ import DarkModeToggle from '@/components/DarkModeToggle';
 import PomodoroTimer from '@/components/PomodoroTimer';
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal';
 import AuthModal from '@/components/AuthModal';
+import DebugPanel from '@/components/DebugPanel';
+import FocusModeView from '@/components/FocusModeView';
+import DraggableHabitList from '@/components/DraggableHabitList';
+import UserProfileDropdown from '@/components/UserProfileDropdown';
 import { useAuth } from '@/contexts/AuthContext';
+import { isDebugMode } from '@/lib/debugUtils';
+import { sortHabitsWithPinnedFirst } from '@/lib/sortUtils';
 
 type ViewMode = 'list' | 'focus';
 
 export default function Home() {
-  const { user, loading: authLoading, signOut, provider } = useAuth();
-  const [habits, setHabits] = useState<Habit[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [completions, setCompletions] = useState<Map<string, boolean>>(new Map());
+  const { user, loading: authLoading, signOut } = useAuth();
+  
+  // Zustand store - single source of truth
+  const {
+    habits: allHabits,
+    completions: allCompletions,
+    categories,
+    loading: dataLoading,
+    initialized,
+    initialize,
+    refresh,
+    addHabit,
+    updateHabit,
+    deleteHabit,
+    toggleCompletion,
+    toggleSubtask,
+    togglePin,
+    toggleArchive,
+    reorderHabits,
+    getCompletionMap,
+    getActiveHabits
+  } = useHabitStore();
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('list');
-  const [refreshKey, setRefreshKey] = useState(0);
   const [pomodoroHabit, setPomodoroHabit] = useState<Habit | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [dataLoading, setDataLoading] = useState(false);
-  const loadingRef = useRef(false);
+  const [debugMode, setDebugMode] = useState(false);
+  const [focusHabits, setFocusHabits] = useState<Habit[]>([]);
   
   // Filtering and Sorting state
   const [filterPriority, setFilterPriority] = useState<string>('all');
@@ -56,61 +71,31 @@ export default function Home() {
 
   const today = formatToISODate(new Date());
 
+  // Check debug mode on client-side mount
   useEffect(() => {
-    // Only load data if user is authenticated
+    setDebugMode(isDebugMode());
+  }, []);
+
+  // Initialize store when user is authenticated
+  useEffect(() => {
     if (!user && !authLoading) {
       setShowAuthModal(true);
       return;
     }
     
-    if (!user || authLoading) return;
-    
-    // Prevent duplicate concurrent loads
-    if (loadingRef.current) return;
-    
-    const loadData = async () => {
-      if (loadingRef.current) {
-        console.log('[Page] Load blocked - already in progress');
-        return;
-      }
-      
-      console.log('[Page] Starting data load...');
-      loadingRef.current = true;
-      setDataLoading(true);
-      
-      try {
-        const todayDate = formatToISODate(new Date());
-        
-        // Note: The 3 auth calls are expected because Promise.all() runs concurrently
-        // before the first call can cache the user. This is acceptable.
-        
-        const [habitsData, categoriesData, completionsData] = await Promise.all([
-          getHabits(),
-          getCategories(),
-          getCompletions()
-        ]);
-        
-        // Build completion map for today
-        const completionMap = new Map<string, boolean>();
-        completionsData.forEach((c: HabitCompletion) => {
-          if (c.date === todayDate) {
-            completionMap.set(c.habitId, c.completed);
-          }
-        });
-        
-        setHabits(habitsData);
-        setCategories(categoriesData);
-        setCompletions(completionMap);
-      } catch (error) {
-        console.error('Error loading data:', error);
-      } finally {
-        loadingRef.current = false;
-        setDataLoading(false);
-      }
+    if (user && !initialized && !dataLoading) {
+      initialize();
+    }
+  }, [user, authLoading, initialized, dataLoading, initialize]);
+
+  useEffect(() => {
+    if (allHabits.length === 0) return;
+    const loadFocusHabits = async () => {
+      const selected = await getDashboardHabits(allHabits, allCompletions);
+      setFocusHabits(selected);
     };
-    
-    loadData();
-  }, [refreshKey, user, authLoading]);
+    loadFocusHabits();
+  }, [allHabits, allCompletions]);
 
   const handleAddHabit = async (habitData: {
     name: string;
@@ -128,7 +113,6 @@ export default function Home() {
       } else {
         await addHabit(habitData);
       }
-      setRefreshKey(prev => prev + 1);
     } catch (error) {
       console.error('Error saving habit:', error);
     }
@@ -136,20 +120,9 @@ export default function Home() {
 
   const handleToggleHabit = async (habitId: string, date: string = today) => {
     try {
-      // Optimistic update - no need to reload entire page
-      const currentStatus = completions.get(habitId) || false;
-      const newCompletions = new Map(completions);
-      newCompletions.set(habitId, !currentStatus);
-      setCompletions(newCompletions);
-      
       await toggleCompletion(habitId, date);
-      // Success - optimistic update already applied
     } catch (error) {
       console.error('Error toggling habit:', error);
-      // Revert optimistic update on error
-      const revertedCompletions = new Map(completions);
-      revertedCompletions.set(habitId, completions.get(habitId) || false);
-      setCompletions(revertedCompletions);
     }
   };
 
@@ -157,7 +130,6 @@ export default function Home() {
     if (confirm('Are you sure you want to delete this habit?')) {
       try {
         await deleteHabit(habitId);
-        setRefreshKey(prev => prev + 1);
       } catch (error) {
         console.error('Error deleting habit:', error);
       }
@@ -171,45 +143,33 @@ export default function Home() {
 
   const handleSubtaskToggle = async (habitId: string, subtaskId: string) => {
     try {
-      // Optimistic update - update habit in local state
-      setHabits(currentHabits => 
-        currentHabits.map(habit => {
-          if (habit.id === habitId && habit.subtasks) {
-            return {
-              ...habit,
-              subtasks: habit.subtasks.map(st => 
-                st.id === subtaskId ? { ...st, completed: !st.completed } : st
-              )
-            };
-          }
-          return habit;
-        })
-      );
-      
       await toggleSubtask(habitId, subtaskId);
-      // Success - optimistic update already applied
     } catch (error) {
       console.error('Error toggling subtask:', error);
-      // Reload on error to get correct state
-      setRefreshKey(prev => prev + 1);
     }
   };
 
   const handlePinToggle = async (habitId: string) => {
     try {
-      // Optimistic update - update habit in local state
-      setHabits(currentHabits => 
-        currentHabits.map(habit => 
-          habit.id === habitId ? { ...habit, pinned: !habit.pinned } : habit
-        )
-      );
-      
-      await togglePinHabit(habitId);
-      // Success - optimistic update already applied
+      await togglePin(habitId);
     } catch (error) {
       console.error('Error pinning habit:', error);
-      // Reload on error to get correct state
-      setRefreshKey(prev => prev + 1);
+    }
+  };
+
+  const handleArchiveToggle = async (habitId: string) => {
+    try {
+      await toggleArchive(habitId);
+    } catch (error) {
+      console.error('Error archiving habit:', error);
+    }
+  };
+
+  const handleReorder = async (habitIds: string[]) => {
+    try {
+      await reorderHabits(habitIds);
+    } catch (error) {
+      console.error('Error reordering habits:', error);
     }
   };
 
@@ -237,8 +197,9 @@ export default function Home() {
   }, []);
 
 
-  // Get all active habits (unfiltered) for header counts
-  const allActiveHabits = habits.filter(h => !h.archived);
+  // Get all active habits and completion status
+  const allActiveHabits = getActiveHabits();
+  const completions = getCompletionMap(today);
   const totalCompleted = allActiveHabits.filter(h => completions.get(h.id) === true).length;
   
   // Filter habits for display
@@ -257,10 +218,13 @@ export default function Home() {
     });
   }
   
-  // Sort habits
+  // Sort habits with pinned first, then by order (if no custom sort applied)
   let sortedHabits = [...filteredHabits];
   
-  if (sortBy === 'priority-asc') {
+  if (sortBy === 'none') {
+    // Default: pinned first, then by order
+    sortedHabits = sortHabitsWithPinnedFirst(sortedHabits);
+  } else if (sortBy === 'priority-asc') {
     // High to Low priority
     sortedHabits.sort((a, b) => {
       return getPriorityOrder(a.priority) - getPriorityOrder(b.priority);
@@ -329,7 +293,6 @@ export default function Home() {
           onClose={() => setShowAuthModal(false)}
           onSuccess={() => {
             setShowAuthModal(false);
-            setRefreshKey(prev => prev + 1);
           }}
         />
         <div className="min-h-screen bg-gradient-to-br from-beige-50 via-ocean-50/30 to-beige-100 dark:from-dark-bg dark:via-dark-bg dark:to-dark-card flex items-center justify-center p-4">
@@ -387,14 +350,6 @@ export default function Home() {
             </div>
             
             <div className="flex items-center gap-2 sm:gap-3">
-              {/* User Info & Sign Out */}
-              {user && (
-                <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-ocean-100 dark:bg-dark-hover border border-ocean-200 dark:border-dark-border">
-                  <User className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
-                  <span className="text-xs text-ocean-600 dark:text-dark-text-secondary">{user.email}</span>
-                </div>
-              )}
-              
               {/* Mobile Menu Button */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -405,30 +360,21 @@ export default function Home() {
               </button>
               <DarkModeToggle />
               <button
-                onClick={() => setShowShortcuts(true)}
-                className="hidden sm:block p-2 rounded-lg bg-ocean-100 dark:bg-dark-hover text-ocean-700 dark:text-dark-text-primary hover:bg-ocean-200 dark:hover:bg-dark-border transition-colors"
-                title="Keyboard Shortcuts"
-              >
-                <span className="text-sm font-mono">?</span>
-              </button>
-              <button
                 onClick={() => {
                   setEditingHabit(null);
                   setIsModalOpen(true);
                 }}
                 className="btn btn-primary flex items-center gap-2"
+                disabled={dataLoading}
               >
                 <Plus className="w-5 h-5" />
                 <span className="hidden sm:inline">Add Habit</span>
               </button>
-              <button
-                onClick={signOut}
-                className="btn btn-secondary flex items-center gap-2"
-                title="Sign Out"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Sign Out</span>
-              </button>
+              
+              {/* User Profile Dropdown - Extreme Right */}
+              {user && (
+                <UserProfileDropdown userEmail={user.email || ''} onSignOut={signOut} />
+              )}
             </div>
           </div>
 
@@ -479,6 +425,10 @@ export default function Home() {
               <Zap className="w-4 h-4" />
               <span className="hidden sm:inline">Focus</span>
             </button>
+            <Link href="/archived" className="btn btn-secondary flex items-center gap-2">
+              <Archive className="w-4 h-4" />
+              <span className="hidden sm:inline">Archived</span>
+            </Link>
           </div>
         </div>
       </header>
@@ -609,6 +559,20 @@ export default function Home() {
                     Add New Habit
                   </button>
                 </div>
+              ) : groupBy === 'none' && sortBy === 'none' ? (
+                <DraggableHabitList
+                  habits={activeHabits}
+                  categories={categories}
+                  completions={completions}
+                  onToggle={handleToggleHabit}
+                  onDelete={handleDeleteHabit}
+                  onEdit={handleEditHabit}
+                  onStartTimer={setPomodoroHabit}
+                  onSubtaskToggle={handleSubtaskToggle}
+                  onPin={handlePinToggle}
+                  onArchive={handleArchiveToggle}
+                  onReorder={handleReorder}
+                />
               ) : groupBy === 'none' ? (
                 <div className="space-y-3">
                   {activeHabits.map((habit, index) => {
@@ -623,6 +587,7 @@ export default function Home() {
                         onStartTimer={() => setPomodoroHabit(habit)}
                         onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
                         onPin={() => handlePinToggle(habit.id)}
+                        onArchive={() => handleArchiveToggle(habit.id)}
                         isCompleted={completions.get(habit.id) === true}
                         categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
                         categoryName={category?.name}
@@ -686,6 +651,7 @@ export default function Home() {
                                   onStartTimer={() => setPomodoroHabit(habit)}
                                   onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
                                   onPin={() => handlePinToggle(habit.id)}
+                                  onArchive={() => handleArchiveToggle(habit.id)}
                                   isCompleted={completions.get(habit.id) === true}
                                   categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
                                   categoryName={category?.name}
@@ -704,101 +670,18 @@ export default function Home() {
         )}
 
         {viewMode === 'focus' && (
-          <div className="space-y-6">
-            {/* Focus Mode - Ocean themed */}
-            <div className="card p-6 sm:p-8 bg-gradient-to-br from-ocean-50 via-ocean-100 to-ocean-200 dark:from-dark-card dark:via-dark-card dark:to-dark-hover border-2 border-ocean-300 dark:border-dark-border rounded-2xl shadow-lg">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="p-4 bg-gradient-to-br from-ocean-400 to-ocean-600 rounded-2xl shadow-md">
-                  <Zap className="w-7 h-7 text-white" />
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">Focus Mode</h2>
-                  <p className="text-sm text-ocean-600 dark:text-dark-text-secondary">One task at a time. You've got this!</p>
-                </div>
-              </div>
-              
-              {(() => {
-                const highPriorityIncomplete = activeHabits
-                  .filter(h => h.priority === 'high' && completions.get(h.id) !== true);
-                
-                const totalTimeMinutes = highPriorityIncomplete.reduce((sum, h) => {
-                  return sum + timeEstimateToMinutes(h.timeEstimate || '15min');
-                }, 0);
-                
-                return (
-                  <div>
-                    {/* Stats bar */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 mb-6">
-                      <div className="flex-1 flex items-center gap-3 p-4 bg-white/80 dark:bg-dark-hover/80 backdrop-blur rounded-xl border border-ocean-200 dark:border-dark-border">
-                        <div className="p-2 bg-ocean-100 dark:bg-ocean-700/30 rounded-lg">
-                          <Target className="w-5 h-5 text-ocean-600 dark:text-ocean-300" />
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">{highPriorityIncomplete.length}</p>
-                          <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">High-priority tasks</p>
-                        </div>
-                      </div>
-                      <div className="flex-1 flex items-center gap-3 p-4 bg-white/80 dark:bg-dark-hover/80 backdrop-blur rounded-xl border border-ocean-200 dark:border-dark-border">
-                        <div className="p-2 bg-ocean-100 dark:bg-ocean-700/30 rounded-lg">
-                          <Clock className="w-5 h-5 text-ocean-600 dark:text-ocean-300" />
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-ocean-800 dark:text-dark-text-primary">~{totalTimeMinutes}</p>
-                          <p className="text-xs text-ocean-500 dark:text-dark-text-tertiary">Minutes total</p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {highPriorityIncomplete.length === 0 ? (
-                      <div className="text-center py-12 bg-white/60 dark:bg-dark-hover/60 backdrop-blur rounded-2xl">
-                        <div className="text-7xl mb-4">🌊</div>
-                        <p className="text-xl font-bold text-ocean-800 dark:text-dark-text-primary">All high-priority tasks done!</p>
-                        <p className="text-sm text-ocean-600 dark:text-dark-text-secondary mt-2">Smooth sailing! Take a well-deserved break.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {highPriorityIncomplete.map((habit, index) => {
-                          const category = categories.find(c => c.id === habit.category);
-                          const habitColor = getHabitColor(index);
-                          return (
-                            <HabitCard
-                              key={habit.id}
-                              habit={habit}
-                              onToggle={() => handleToggleHabit(habit.id)}
-                              onDelete={() => handleDeleteHabit(habit.id)}
-                              onEdit={() => handleEditHabit(habit)}
-                              onStartTimer={() => setPomodoroHabit(habit)}
-                              onSubtaskToggle={(subtaskId) => handleSubtaskToggle(habit.id, subtaskId)}
-                              onPin={() => handlePinToggle(habit.id)}
-                              isCompleted={false}
-                              categoryColor={category ? getCategoryColor(category.id, activeHabits, categories) : undefined}
-                              categoryName={category?.name}
-                            />
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-            </div>
-            
-            {/* Quick tip - Ocean themed */}
-            <div className="card p-5 bg-gradient-to-r from-ocean-50 to-ocean-100 dark:from-dark-hover dark:to-dark-card border border-ocean-200 dark:border-dark-border rounded-xl">
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-ocean-200 dark:bg-dark-border rounded-lg flex-shrink-0">
-                  <span className="text-lg">🌊</span>
-                </div>
-                <div>
-                  <p className="font-semibold text-ocean-800 dark:text-dark-text-primary mb-1">Stay in the Flow</p>
-                  <p className="text-sm text-ocean-600 dark:text-dark-text-secondary leading-relaxed">
-                    One task at a time. Break big tasks into smaller steps. 
-                    Progress over perfection!
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <FocusModeView
+            habits={focusHabits}
+            categories={categories}
+            completions={completions}
+            onToggle={handleToggleHabit}
+            onDelete={handleDeleteHabit}
+            onEdit={handleEditHabit}
+            onStartTimer={setPomodoroHabit}
+            onSubtaskToggle={handleSubtaskToggle}
+            onPin={handlePinToggle}
+            onArchive={handleArchiveToggle}
+          />
         )}
       </main>
 
@@ -839,6 +722,14 @@ export default function Home() {
         isOpen={showShortcuts}
         onClose={() => setShowShortcuts(false)}
       />
+
+      {/* Debug Panel (only visible when ?debug=true in URL) */}
+      {debugMode && (
+        <DebugPanel 
+          habits={allActiveHabits} 
+          onRefresh={() => refresh()}
+        />
+      )}
     </div>
   );
 }

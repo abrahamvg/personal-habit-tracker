@@ -10,6 +10,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { IStorageProvider } from '@/lib/providers/IDataProvider';
 import { ProviderFactory, getProviderConfigFromEnv } from '@/lib/providers/ProviderFactory';
 import { setGlobalProvider } from '@/lib/storage';
+import { useHabitStore } from '@/lib/store';
 
 interface AuthContextType {
   user: any | null;
@@ -31,7 +32,7 @@ export function AuthProvider({ children, customProvider }: AuthProviderProps) {
   const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [provider] = useState<IStorageProvider>(() => {
-    const providerInstance = customProvider || ProviderFactory.createProvider(getProviderConfigFromEnv());
+    const providerInstance = customProvider || ProviderFactory.getInstance(getProviderConfigFromEnv());
     
     // Set as global provider so storage.ts can use it
     setGlobalProvider(providerInstance);
@@ -91,6 +92,8 @@ export function AuthProvider({ children, customProvider }: AuthProviderProps) {
     try {
       await provider.signOut();
       setUser(null);
+      // Reset store to clear all user data
+      useHabitStore.getState().reset();
     } catch (error) {
       console.error('Error signing out:', error);
     }

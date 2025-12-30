@@ -57,6 +57,10 @@ export const addHabit = async (habit: Omit<Habit, 'id' | 'createdAt' | 'archived
   return await getProvider().addHabit(habit);
 };
 
+export const addHabitWithDate = async (habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>, createdAt: string): Promise<Habit> => {
+  return await getProvider().addHabitWithDate(habit, createdAt);
+};
+
 export const updateHabit = async (id: string, updates: Partial<Habit>): Promise<void> => {
   return await getProvider().updateHabit(id, updates);
 };
@@ -70,6 +74,35 @@ export const togglePinHabit = async (id: string): Promise<void> => {
   const habit = habits.find(h => h.id === id);
   if (habit) {
     await updateHabit(id, { pinned: !habit.pinned });
+  }
+};
+
+export const toggleArchiveHabit = async (id: string): Promise<void> => {
+  const habits = await getHabits();
+  const habit = habits.find(h => h.id === id);
+  if (habit) {
+    await updateHabit(id, { archived: !habit.archived });
+  }
+};
+
+export const reorderHabits = async (habitIds: string[]): Promise<void> => {
+  const habits = await getHabits();
+  
+  // Only update habits whose order actually changed
+  const updates: { id: string; order: number }[] = [];
+  
+  habitIds.forEach((id, newIndex) => {
+    const habit = habits.find(h => h.id === id);
+    if (habit && habit.order !== newIndex) {
+      updates.push({ id, order: newIndex });
+    }
+  });
+  
+  // Only make API calls for habits that changed
+  if (updates.length > 0) {
+    await Promise.all(
+      updates.map(({ id, order }) => updateHabit(id, { order }))
+    );
   }
 };
 
@@ -130,38 +163,3 @@ export const getActiveHabits = (habits: Habit[]): Habit[] => {
   return habits.filter(h => !h.archived);
 };
 
-// ============ BACKWARD COMPATIBILITY (DEPRECATED) ============
-// These synchronous versions are kept for gradual migration
-// They use localStorage provider and will be removed in future versions
-
-import { LocalStorageProvider } from './providers/LocalStorageProvider';
-const legacyProvider = new LocalStorageProvider();
-
-/**
- * @deprecated Use async getHabits() instead
- */
-export const getHabitsSync = (): Habit[] => {
-  if (typeof window === 'undefined') return [];
-  const data = localStorage.getItem('habit-tracker-habits');
-  return data ? JSON.parse(data) : [];
-};
-
-/**
- * @deprecated Use async getCompletions() instead
- */
-export const getCompletionsSync = (): HabitCompletion[] => {
-  if (typeof window === 'undefined') return [];
-  const data = localStorage.getItem('habit-tracker-completions');
-  return data ? JSON.parse(data) : [];
-};
-
-/**
- * @deprecated Use async isHabitCompleted() instead
- */
-export const isHabitCompletedSync = (habitId: string, date: string): boolean => {
-  const completions = getCompletionsSync();
-  const completion = completions.find(
-    c => c.habitId === habitId && c.date === date
-  );
-  return completion?.completed || false;
-};

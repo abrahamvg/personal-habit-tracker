@@ -25,6 +25,7 @@ export type Habit = {
   createdAt: string;
   archived: boolean;
   pinned?: boolean;
+  order?: number;
 };
 
 export type HabitCompletion = {

@@ -26,7 +26,11 @@ export default function HeatmapCalendar({ habits, completions, onDayClick }: Hea
         
         // Count habits that existed on this date
         const existingHabits = activeHabits.filter(habit => {
-          const habitCreatedDate = formatToISODate(new Date(habit.createdAt));
+          // Treat habits without createdAt as created long ago (always existed)
+          const habitCreatedDate = habit.createdAt
+            ? formatToISODate(new Date(habit.createdAt))
+            : '1970-01-01';
+          
           return date >= habitCreatedDate;
         });
         

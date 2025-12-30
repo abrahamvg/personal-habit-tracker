@@ -107,7 +107,6 @@ export class SupabaseProvider implements IStorageProvider {
       .from('habits')
       .select('*')
       .eq('user_id', user.id)
-      .eq('archived', false)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -115,7 +114,23 @@ export class SupabaseProvider implements IStorageProvider {
   }
 
   async addHabit(habitData: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Promise<Habit> {
+    return this.addHabitWithDate(habitData, new Date().toISOString());
+  }
+
+  async addHabitWithDate(habitData: Omit<Habit, 'id' | 'createdAt' | 'archived'>, createdAt: string): Promise<Habit> {
     const user = await this.ensureAuthenticated();
+
+    // Get max order for this user
+    const { data: existingHabits } = await this.client
+      .from('habits')
+      .select('order')
+      .eq('user_id', user.id)
+      .order('order', { ascending: false })
+      .limit(1);
+
+    const maxOrder = existingHabits && existingHabits.length > 0 
+      ? (existingHabits[0].order || 0) 
+      : -1;
 
     const habitId = generateId();
     const dbHabit = {
@@ -130,7 +145,8 @@ export class SupabaseProvider implements IStorageProvider {
       subtasks: habitData.subtasks || [],
       archived: false,
       pinned: false,
-      created_at: new Date().toISOString(),
+      order: maxOrder + 1,
+      created_at: createdAt,
     };
 
     const { data, error } = await this.client
@@ -157,6 +173,7 @@ export class SupabaseProvider implements IStorageProvider {
     if (updates.subtasks !== undefined) dbUpdates.subtasks = updates.subtasks;
     if (updates.archived !== undefined) dbUpdates.archived = updates.archived;
     if (updates.pinned !== undefined) dbUpdates.pinned = updates.pinned;
+    if (updates.order !== undefined) dbUpdates.order = updates.order;
 
     const { error } = await this.client
       .from('habits')
@@ -349,6 +366,7 @@ export class SupabaseProvider implements IStorageProvider {
       createdAt: dbHabit.created_at,
       archived: dbHabit.archived,
       pinned: dbHabit.pinned || false,
+      order: dbHabit.order || 0,
     };
   }
 

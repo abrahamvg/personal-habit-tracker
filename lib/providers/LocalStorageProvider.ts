@@ -61,6 +61,15 @@ export class LocalStorageProvider implements IStorageProvider {
       const userData = localStorage.getItem(USER_KEY);
       if (userData) {
         this.mockUser = JSON.parse(userData);
+      } else {
+        // Auto-create a guest user for localStorage mode (no auth required)
+        const guestUser = {
+          id: 'local-user',
+          email: 'guest@local',
+          created_at: new Date().toISOString(),
+        };
+        localStorage.setItem(USER_KEY, JSON.stringify(guestUser));
+        this.mockUser = guestUser;
       }
     }
     
@@ -86,12 +95,18 @@ export class LocalStorageProvider implements IStorageProvider {
   }
 
   async addHabit(habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Promise<Habit> {
+    return this.addHabitWithDate(habit, new Date().toISOString());
+  }
+
+  async addHabitWithDate(habit: Omit<Habit, 'id' | 'createdAt' | 'archived'>, createdAt: string): Promise<Habit> {
     const habits = await this.getHabits();
+    const maxOrder = habits.reduce((max, h) => Math.max(max, h.order || 0), -1);
     const newHabit: Habit = {
       ...habit,
       id: generateId(),
-      createdAt: new Date().toISOString(),
+      createdAt,
       archived: false,
+      order: maxOrder + 1,
     };
     
     const updatedHabits = [...habits, newHabit];
