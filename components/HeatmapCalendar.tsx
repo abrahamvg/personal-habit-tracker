@@ -132,7 +132,8 @@ export default function HeatmapCalendar({ habits, completions, onDayClick }: Hea
                 
                 {week.map((day, dayIndex) => {
                   const isToday = day.date === today;
-                  const isFuture = new Date(day.date) > new Date();
+                  // Compare only dates, not times (avoid UTC timezone issues)
+                  const isFuture = day.date > today;
                   
                   return (
                     <button

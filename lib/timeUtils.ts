@@ -94,6 +94,7 @@ export function formatSecondsToTime(seconds: number): string {
 
 /**
  * Format date to ISO date string (YYYY-MM-DD)
+ * Uses LOCAL browser timezone, not UTC
  * Centralized to ensure consistency across the app
  */
 export function formatToISODate(date: Date | string): string {
@@ -102,8 +103,16 @@ export function formatToISODate(date: Date | string): string {
   // Validate the date object
   if (isNaN(dateObj.getTime())) {
     console.warn('Invalid date passed to formatToISODate:', date);
-    return new Date().toISOString().split('T')[0]; // Return today's date as fallback
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   }
   
-  return dateObj.toISOString().split('T')[0];
+  // Use local timezone instead of UTC
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

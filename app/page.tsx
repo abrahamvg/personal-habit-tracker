@@ -1,10 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { format } from 'date-fns';
-import { useState, useEffect } from 'react';
+import { format, subDays, addDays } from 'date-fns';
+import { useState, useEffect, useMemo } from 'react';
 import { Habit, Category } from '@/lib/types';
-import { Plus, List, Target, Trophy, Zap, Clock, Filter, SortAsc, ChevronDown, ChevronUp, Menu, X, RotateCcw, LogOut, User, Archive } from 'lucide-react';
+import { Plus, X, Menu, Target, Trophy, Flame, Calendar, TrendingUp, Focus, Archive, LogOut, Keyboard, ChevronLeft, ChevronRight, List, Zap, Clock, Filter, SortAsc, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { useHabitStore } from '@/lib/store';
 import { getHabitColor, getCategoryColor } from '@/lib/colors';
 import { timeEstimateToMinutes, formatToISODate } from '@/lib/timeUtils';
@@ -60,6 +60,7 @@ export default function Home() {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [debugMode, setDebugMode] = useState(false);
   const [focusHabits, setFocusHabits] = useState<Habit[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>(formatToISODate(new Date()));
   
   // Filtering and Sorting state
   const [filterPriority, setFilterPriority] = useState<string>('all');
@@ -70,6 +71,7 @@ export default function Home() {
   const [filtersExpanded, setFiltersExpanded] = useState(false);
 
   const today = formatToISODate(new Date());
+  const isViewingToday = selectedDate === today;
 
   // Check debug mode on client-side mount
   useEffect(() => {
@@ -118,12 +120,28 @@ export default function Home() {
     }
   };
 
-  const handleToggleHabit = async (habitId: string, date: string = today) => {
+  const handleToggleHabit = async (habitId: string, date: string = selectedDate) => {
     try {
       await toggleCompletion(habitId, date);
     } catch (error) {
       console.error('Error toggling habit:', error);
     }
+  };
+
+  const goToPreviousDay = () => {
+    const prevDay = formatToISODate(subDays(new Date(selectedDate), 1));
+    setSelectedDate(prevDay);
+  };
+
+  const goToNextDay = () => {
+    const nextDay = formatToISODate(addDays(new Date(selectedDate), 1));
+    if (nextDay <= today) {
+      setSelectedDate(nextDay);
+    }
+  };
+
+  const goToToday = () => {
+    setSelectedDate(today);
   };
 
   const handleDeleteHabit = async (habitId: string) => {
@@ -199,7 +217,7 @@ export default function Home() {
 
   // Get all active habits and completion status
   const allActiveHabits = getActiveHabits();
-  const completions = getCompletionMap(today);
+  const completions = useMemo(() => getCompletionMap(selectedDate), [allCompletions, getCompletionMap, selectedDate]);
   const totalCompleted = allActiveHabits.filter(h => completions.get(h.id) === true).length;
   
   // Filter habits for display
@@ -330,7 +348,34 @@ export default function Home() {
               <Link href="/dashboard" className="inline-block hover:opacity-80 transition-opacity">
                 <h1 className="text-2xl sm:text-3xl font-bold text-ocean-800 dark:text-dark-text-primary cursor-pointer">Habit Tracker</h1>
               </Link>
-              <p className="text-sm text-ocean-600 dark:text-dark-text-secondary mt-1">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  onClick={goToPreviousDay}
+                  className="p-1 hover:bg-ocean-100 dark:hover:bg-dark-hover rounded transition-colors"
+                  title="Previous day"
+                >
+                  <ChevronLeft className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
+                </button>
+                <p className="text-sm text-ocean-600 dark:text-dark-text-secondary">
+                  {format(new Date(selectedDate), 'EEEE, MMMM d, yyyy')}
+                  {!isViewingToday && (
+                    <button
+                      onClick={goToToday}
+                      className="ml-2 text-xs px-2 py-0.5 bg-ocean-500 text-white rounded hover:bg-ocean-600 transition-colors"
+                    >
+                      ⟳
+                    </button>
+                  )}
+                </p>
+                <button
+                  onClick={goToNextDay}
+                  disabled={isViewingToday}
+                  className="p-1 hover:bg-ocean-100 dark:hover:bg-dark-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                  title="Next day"
+                >
+                  <ChevronRight className="w-4 h-4 text-ocean-600 dark:text-dark-text-secondary" />
+                </button>
+              </div>
             </div>
             
             {/* Today's Progress Pills - Desktop */}

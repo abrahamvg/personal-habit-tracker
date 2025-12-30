@@ -36,6 +36,8 @@ export default function DraggableHabitList({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const dragCounter = useRef(0);
+  const touchStartY = useRef<number | null>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
@@ -95,6 +97,54 @@ export default function DraggableHabitList({
     dragCounter.current = 0;
   };
 
+  // Touch event handlers for mobile support
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    const touch = e.touches[0];
+    touchStartY.current = touch.clientY;
+    setDraggedIndex(index);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (draggedIndex === null || touchStartY.current === null) return;
+    
+    e.preventDefault();
+    const touch = e.touches[0];
+    const currentY = touch.clientY;
+
+    // Find which item is under the touch point
+    let newOverIndex: number | null = null;
+    itemRefs.current.forEach((ref, index) => {
+      if (ref) {
+        const rect = ref.getBoundingClientRect();
+        if (currentY >= rect.top && currentY <= rect.bottom) {
+          newOverIndex = index;
+        }
+      }
+    });
+
+    if (newOverIndex !== null && newOverIndex !== dragOverIndex) {
+      setDragOverIndex(newOverIndex);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (draggedIndex !== null && dragOverIndex !== null && draggedIndex !== dragOverIndex) {
+      // Reorder the habits array
+      const reorderedHabits = [...habits];
+      const [draggedHabit] = reorderedHabits.splice(draggedIndex, 1);
+      reorderedHabits.splice(dragOverIndex, 0, draggedHabit);
+
+      // Get the new order of habit IDs
+      const newOrder = reorderedHabits.map(h => h.id);
+      onReorder(newOrder);
+    }
+
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+    touchStartY.current = null;
+    dragCounter.current = 0;
+  };
+
   return (
     <div className="space-y-3">
       {habits.map((habit, index) => {
@@ -104,7 +154,11 @@ export default function DraggableHabitList({
         const showDropLineBelow = dragOverIndex === index && draggedIndex !== null && draggedIndex < index;
         
         return (
-          <div key={habit.id} className="relative">
+          <div 
+            key={habit.id} 
+            className="relative"
+            ref={(el) => { itemRefs.current[index] = el; }}
+          >
             {/* Drop indicator line ABOVE */}
             {showDropLineAbove && (
               <div className="absolute left-0 right-0 -top-1.5 z-20">
@@ -120,9 +174,13 @@ export default function DraggableHabitList({
               onDragEnter={(e) => handleDragEnter(e, index)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, index)}
+              onTouchStart={(e) => handleTouchStart(e, index)}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
               className={`
                 transition-opacity duration-200
                 ${isDragging ? 'opacity-50' : 'opacity-100'}
+                touch-none
               `}
             >
               <div className="relative group">
