@@ -155,7 +155,7 @@ export default function HabitCard({
           </button>
 
           {showActionsMenu && (
-            <div className="mt-1 w-48 bg-white dark:bg-dark-card border border-sand-200 dark:border-dark-border rounded-lg shadow-lg z-50">
+            <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-dark-card border border-sand-200 dark:border-dark-border rounded-lg shadow-lg z-50">
               <div className="py-1">
                 {onPin && (
                   <button
