@@ -110,7 +110,7 @@ export class SupabaseProvider implements IStorageProvider {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
-    return data || [];
+    return (data || []).map(h => this.mapHabitFromDB(h));
   }
 
   async addHabit(habitData: Omit<Habit, 'id' | 'createdAt' | 'archived'>): Promise<Habit> {

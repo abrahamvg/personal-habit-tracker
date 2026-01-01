@@ -1,7 +1,7 @@
 'use client';
 
 import { Habit } from '@/lib/types';
-import { CheckCircle2, Circle, Trash2, Edit, Clock, Timer, ChevronDown, ChevronUp, Pin, Archive, ArchiveRestore } from 'lucide-react';
+import { CheckCircle2, Circle, Trash2, Edit, Clock, Timer, ChevronDown, ChevronUp, Pin, Archive, ArchiveRestore, MoreVertical } from 'lucide-react';
 import { useState } from 'react';
 import { formatTimeEstimate } from '@/lib/timeUtils';
 import PriorityBadge from './ui/PriorityBadge';
@@ -34,6 +34,7 @@ export default function HabitCard({
   categoryName,
 }: HabitCardProps) {
   const [showSubtasks, setShowSubtasks] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   
   const subtaskProgress = habit.subtasks
     ? habit.subtasks.filter(st => st.completed).length / habit.subtasks.length
@@ -41,8 +42,8 @@ export default function HabitCard({
 
   return (
     <div className="card p-4 hover:shadow-md dark:hover:shadow-lg transition-shadow">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 flex-1">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1">
           {/* Checkbox */}
           <button
             onClick={onToggle}
@@ -61,30 +62,33 @@ export default function HabitCard({
 
           {/* Habit Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className={`font-medium text-lg ${isCompleted ? 'line-through text-sand-500 dark:text-dark-text-tertiary' : 'text-sand-900 dark:text-dark-text-primary'}`}>
-                {habit.name}
-              </h3>
-              
-              {/* Priority Badge */}
-              {habit.priority && <PriorityBadge priority={habit.priority} />}
-              
-              {/* Time Estimate Badge */}
-              {habit.timeEstimate && (
-                <span className="badge text-xs font-medium bg-sand-100 dark:bg-dark-hover text-sand-700 dark:text-dark-text-secondary flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {formatTimeEstimate(habit.timeEstimate)}
-                </span>
-              )}
-              
-              {habit.category && categoryColor && categoryName && (
-                <span 
+            <div className="flex items-start gap-2 flex-col">
+              <div>  
+                <h3 className={`font-medium text-lg ${isCompleted ? 'line-through text-sand-500 dark:text-dark-text-tertiary' : 'text-sand-900 dark:text-dark-text-primary'}`}>
+                  {habit.name}
+                </h3>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Priority Badge */}
+                {habit.priority && <PriorityBadge priority={habit.priority} />}
+                
+                {/* Time Estimate Badge */}
+                {habit.timeEstimate && (
+                  <span className="badge text-xs font-medium bg-sand-100 dark:bg-dark-hover text-sand-700 dark:text-dark-text-secondary flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    {formatTimeEstimate(habit.timeEstimate)}
+                  </span>
+                )}
+                
+                {habit.category && categoryColor && categoryName && (
+                  <span 
                   className="badge text-xs font-medium text-white"
                   style={{ backgroundColor: categoryColor }}
-                >
-                  {categoryName}
-                </span>
-              )}
+                  >
+                    {categoryName}
+                  </span>
+                )}
+              </div>
             </div>
             
             {habit.description && (
@@ -139,60 +143,98 @@ export default function HabitCard({
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1">
-          {onPin && (
-            <button
-              onClick={onPin}
-              className="p-2 rounded-lg group"
-              title={habit.pinned ? 'Unpin from dashboard' : 'Pin to dashboard'}
-            >
-              <Pin 
-                className={`w-4 h-4 transition-all group-hover:rotate-12 ${
-                  habit.pinned 
-                    ? 'text-ocean-600 dark:text-ocean-400 rotate-12' 
-                    : 'text-sand-600 dark:text-dark-text-secondary'
-                }`}
-                fill={habit.pinned ? 'currentColor' : 'none'}
-              />
-            </button>
-          )}
-          {onStartTimer && habit.timeEstimate && (
-            <button
-              onClick={onStartTimer}
-              className="p-2 hover:bg-priority-medium-100 dark:hover:bg-priority-medium-900/30 rounded-lg transition-colors group"
-              title="Start Pomodoro timer"
-            >
-              <Timer className="w-4 h-4 text-priority-medium-600 dark:text-priority-medium-400 group-hover:text-priority-medium-700 dark:group-hover:text-priority-medium-300" />
-            </button>
-          )}
-          {onArchive && (
-            <button
-              onClick={onArchive}
-              className="p-2 hover:bg-beige-200 dark:hover:bg-dark-hover rounded-lg transition-colors"
-              title={habit.archived ? 'Unarchive habit' : 'Archive habit'}
-            >
-              {habit.archived ? (
-                <ArchiveRestore className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
-              ) : (
-                <Archive className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
-              )}
-            </button>
-          )}
+        {/* Actions Dropdown */}
+        <div className="relative">
           <button
-            onClick={onEdit}
+            onClick={() => setShowActionsMenu(!showActionsMenu)}
+            onBlur={() => setTimeout(() => setShowActionsMenu(false), 150)}
             className="p-2 hover:bg-beige-200 dark:hover:bg-dark-hover rounded-lg transition-colors"
-            title="Edit habit"
+            title="Actions"
           >
-            <Edit className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+            <MoreVertical className="w-5 h-5 text-sand-600 dark:text-dark-text-secondary" />
           </button>
-          <button
-            onClick={onDelete}
-            className="p-2 hover:bg-beige-200 dark:hover:bg-dark-hover rounded-lg transition-colors"
-            title="Delete habit"
-          >
-            <Trash2 className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
-          </button>
+
+          {showActionsMenu && (
+            <div className="mt-1 w-48 bg-white dark:bg-dark-card border border-sand-200 dark:border-dark-border rounded-lg shadow-lg z-50">
+              <div className="py-1">
+                {onPin && (
+                  <button
+                    onClick={() => {
+                      onPin();
+                      setShowActionsMenu(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-beige-100 dark:hover:bg-dark-hover transition-colors flex items-center gap-3"
+                  >
+                    <Pin 
+                      className={`w-4 h-4 ${
+                        habit.pinned 
+                          ? 'text-ocean-600 dark:text-ocean-400' 
+                          : 'text-sand-600 dark:text-dark-text-secondary'
+                      }`}
+                      fill={habit.pinned ? 'currentColor' : 'none'}
+                    />
+                    <span className="text-sand-900 dark:text-dark-text-primary">
+                      {habit.pinned ? 'Unpin' : 'Pin to Dashboard'}
+                    </span>
+                  </button>
+                )}
+                {onStartTimer && habit.timeEstimate && (
+                  <button
+                    onClick={() => {
+                      onStartTimer();
+                      setShowActionsMenu(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-beige-100 dark:hover:bg-dark-hover transition-colors flex items-center gap-3"
+                  >
+                    <Timer className="w-4 h-4 text-priority-medium-600 dark:text-priority-medium-400" />
+                    <span className="text-sand-900 dark:text-dark-text-primary">Start Timer</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    onEdit();
+                    setShowActionsMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-beige-100 dark:hover:bg-dark-hover transition-colors flex items-center gap-3"
+                >
+                  <Edit className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+                  <span className="text-sand-900 dark:text-dark-text-primary">Edit</span>
+                </button>
+                {onArchive && (
+                  <button
+                    onClick={() => {
+                      onArchive();
+                      setShowActionsMenu(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-beige-100 dark:hover:bg-dark-hover transition-colors flex items-center gap-3"
+                  >
+                    {habit.archived ? (
+                      <>
+                        <ArchiveRestore className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+                        <span className="text-sand-900 dark:text-dark-text-primary">Unarchive</span>
+                      </>
+                    ) : (
+                      <>
+                        <Archive className="w-4 h-4 text-sand-600 dark:text-dark-text-secondary" />
+                        <span className="text-sand-900 dark:text-dark-text-primary">Archive</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                <div className="h-px bg-sand-200 dark:bg-dark-border my-1" />
+                <button
+                  onClick={() => {
+                    onDelete();
+                    setShowActionsMenu(false);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-3"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
+                  <span className="text-red-600 dark:text-red-400">Delete</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -174,21 +174,12 @@ export default function DraggableHabitList({
               onDragEnter={(e) => handleDragEnter(e, index)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, index)}
-              onTouchStart={(e) => handleTouchStart(e, index)}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
               className={`
                 transition-opacity duration-200
                 ${isDragging ? 'opacity-50' : 'opacity-100'}
-                touch-none
               `}
             >
               <div className="relative group">
-                {/* Drag Handle */}
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-8 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing z-10">
-                  <GripVertical className="w-5 h-5 text-ocean-400 dark:text-dark-text-tertiary" />
-                </div>
-                
                 <HabitCard
                   habit={habit}
                   onToggle={() => onToggle(habit.id)}

@@ -409,7 +409,7 @@ export default function Home() {
                   setEditingHabit(null);
                   setIsModalOpen(true);
                 }}
-                className="btn btn-primary flex items-center gap-2"
+                className="btn btn-primary flex items-center gap-2 rounded-full max-lg:p-5 max-lg:fixed max-lg:bottom-8 max-lg:right-4 max-lg:z-50"
                 disabled={dataLoading}
               >
                 <Plus className="w-5 h-5" />

@@ -97,7 +97,7 @@ export default function StreakIndicator({ totalHabits, completedToday }: StreakI
 
   // Don't show anything if no tasks completed
   if (completedToday === 0) {
-    return <div className="w-16 h-16" />; // Spacer to maintain layout
+    return <div />;
   }
 
   return (
@@ -128,7 +128,7 @@ export default function StreakIndicator({ totalHabits, completedToday }: StreakI
           </defs>
           
           {/* Flame icon path from lucide-react */}
-          <g transform="translate(16, 12) scale(1.3)">
+          <g transform="translate(16, 16) scale(1.3)">
             <defs>
               {/* Mask for filling from bottom to top - positioned relative to flame */}
               <mask id="flameFillMask">
